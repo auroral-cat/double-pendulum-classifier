@@ -1,0 +1,19 @@
+//! Double-pendulum chaotic / regular classifier.
+//!
+//! Reimplements `double_pendulum_classifier.py`: the equations of motion, a
+//! two-trajectory (Benettin) estimate of the largest Lyapunov exponent, a
+//! Poincaré section on `θ₂ = 0` crossings, and the chaotic / periodic /
+//! quasiperiodic classifier.
+
+#![forbid(unsafe_code)]
+
+pub mod classifier;
+pub mod dynamics;
+pub mod integrator;
+
+pub use classifier::{
+    Classification, ClassificationResult, LyapunovParams, PoincareParams, classify,
+    largest_lyapunov, poincare_section, unique_rounded,
+};
+pub use dynamics::{G, State, double_pendulum, energy};
+pub use integrator::{IntegratorError, integrate};

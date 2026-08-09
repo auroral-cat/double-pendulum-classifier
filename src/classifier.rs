@@ -1,0 +1,250 @@
+//! Largest Lyapunov exponent (two-trajectory method), Poincaré section and the
+//! chaotic / regular classifier.
+//!
+//! This is a faithful reimplementation of the Python experiment, except that
+//! the renormalisation inside [`largest_lyapunov`] is *real*: the perturbed
+//! trajectory is re-integrated from the rescaled state at every checkpoint
+//! (the intended Benettin scheme). In the Python original the renormalisation
+//! only edited the stored solution array after `solve_ivp` had finished, so it
+//! never affected the integration and the log-sum telescoped down to a single
+//! final-separation measurement.
+
+use std::collections::HashSet;
+use std::fmt;
+
+use crate::dynamics::{G, State, double_pendulum};
+use crate::integrator::{IntegratorError, integrate};
+
+/// Solver tolerances for the integrations below.
+///
+/// The two-trajectory Lyapunov estimate measures the separation `d ≈ δ₀` of
+/// two nearby trajectories, which is only meaningful when the integrator's
+/// own trajectory error is much smaller than `δ₀ = 1e-8`. At the nominal
+/// `rtol = atol = 1e-9` of the Python original the separation sits at the
+/// edge of that regime and the estimate is biased high (the original itself
+/// runs at the edge of its own accuracy). With `1e-12` the deviation is
+/// resolved with a comfortable margin.
+const RTOL: f64 = 1e-12;
+const ATOL: f64 = 1e-12;
+
+/// Tuning parameters for [`largest_lyapunov`].
+#[derive(Clone, Copy, Debug)]
+pub struct LyapunovParams {
+    /// Integration horizon in seconds.
+    pub t: f64,
+    /// Output-grid spacing in seconds.
+    pub dt: f64,
+    /// Initial separation `δ₀` of the perturbed trajectory.
+    pub δ0: f64,
+    /// Time between renormalisations in seconds.
+    pub renorm: f64,
+}
+
+impl Default for LyapunovParams {
+    fn default() -> Self {
+        Self {
+            t: 100.0,
+            dt: 0.02,
+            δ0: 1e-8,
+            renorm: 2.0,
+        }
+    }
+}
+
+/// Tuning parameters for [`poincare_section`].
+#[derive(Clone, Copy, Debug)]
+pub struct PoincareParams {
+    /// Integration horizon in seconds.
+    pub t: f64,
+    /// Output-grid spacing in seconds.
+    pub dt: f64,
+}
+
+impl Default for PoincareParams {
+    fn default() -> Self {
+        Self { t: 200.0, dt: 0.01 }
+    }
+}
+
+/// Outcome of [`classify`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Classification {
+    Chaotic,
+    Periodic,
+    Quasiperiodic,
+    /// Regular, but too few Poincaré crossings were collected in the horizon.
+    NeedsLongerIntegration,
+}
+
+impl fmt::Display for Classification {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Chaotic => write!(f, "chaotic"),
+            Self::Periodic => write!(f, "periodic"),
+            Self::Quasiperiodic => write!(f, "quasiperiodic"),
+            Self::NeedsLongerIntegration => write!(f, "regular (need longer integration)"),
+        }
+    }
+}
+
+/// Result of [`classify`]; `points` carries the Poincaré section for regular
+/// orbits and is `None` for chaotic ones (as in the Python original).
+#[derive(Debug)]
+pub struct ClassificationResult {
+    pub classification: Classification,
+    pub λ: f64,
+    pub points: Option<Vec<[f64; 2]>>,
+}
+
+/// Largest Lyapunov exponent `λ₁` via the two-trajectory (Benettin) method.
+///
+/// A reference trajectory is integrated once over `[0, t]`; a second
+/// trajectory starts `δ₀` away in `θ₁` and is re-integrated from a rescaled
+/// state at every `renorm` interval, accumulating `log(d/δ₀)` — this keeps
+/// the separation small so that `λ₁ ≈ (1/t) Σ log(d/δ₀)` even when the
+/// trajectories would otherwise decorrelate completely.
+pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorError> {
+    let f = |t: f64, y: &[f64; 4]| double_pendulum(t, State::from_array(*y), G).to_array();
+    let t_eval = arange(0.0, p.t, p.dt);
+    let n_renorm = ((p.renorm / p.dt).floor() as usize).max(1);
+
+    // Reference trajectory sampled on the full grid.
+    let ref_sol = integrate(f, y0.to_array(), &t_eval, RTOL, ATOL)?;
+
+    // Perturbed trajectory, re-integrated from a renormalised state at every
+    // checkpoint so the separation stays of order δ₀.
+    let mut y_pert = y0.to_array();
+    y_pert[0] += p.δ0; // perturb θ₁ by δ₀
+
+    let mut log_sum = 0.0;
+    let mut t_start = 0.0;
+    let mut i = n_renorm;
+    while i < t_eval.len() {
+        let t_end = t_eval[i];
+        let seg = integrate(f, y_pert, &[t_start, t_end], RTOL, ATOL)?;
+        y_pert = seg[1];
+
+        let ref_i = ref_sol[i];
+        let δ: [f64; 4] = std::array::from_fn(|k| y_pert[k] - ref_i[k]);
+        let d = δ.iter().map(|&x| x * x).sum::<f64>().sqrt();
+        if d > 0.0 {
+            log_sum += (d / p.δ0).ln();
+            // Renormalise: keep the direction of the deviation, reset its size.
+            y_pert = std::array::from_fn(|k| ref_i[k] + (p.δ0 / d) * δ[k]);
+        }
+
+        t_start = t_end;
+        i += n_renorm;
+    }
+
+    Ok(log_sum / p.t)
+}
+
+/// Poincaré section: record `(θ₁, ω₁)` each time `θ₂` crosses 0 upward.
+///
+/// Crossings are detected on the sampled grid and refined with linear
+/// interpolation, exactly as in the Python original.
+pub fn poincare_section(y0: State, p: PoincareParams) -> Result<Vec<[f64; 2]>, IntegratorError> {
+    let f = |t: f64, y: &[f64; 4]| double_pendulum(t, State::from_array(*y), G).to_array();
+    let t_eval = arange(0.0, p.t, p.dt);
+    let sol = integrate(f, y0.to_array(), &t_eval, RTOL, ATOL)?;
+
+    let mut points = Vec::new();
+    for pair in sol.windows(2) {
+        let (prev, cur) = (pair[0], pair[1]);
+        if prev[2] < 0.0 && cur[2] >= 0.0 {
+            // Linear interpolation for a slightly cleaner crossing.
+            let α = -prev[2] / (cur[2] - prev[2]);
+            let θ1_cross = prev[0] + α * (cur[0] - prev[0]);
+            let ω1_cross = prev[1] + α * (cur[1] - prev[1]);
+            points.push([θ1_cross, ω1_cross]);
+        }
+    }
+    Ok(points)
+}
+
+/// Number of distinct points after rounding each coordinate to `decimals`
+/// places (the `np.round(pts, decimals=3)` + `np.unique(axis=0)` test).
+pub fn unique_rounded(points: &[[f64; 2]], decimals: i32) -> usize {
+    let factor = 10f64.powi(decimals);
+    let mut seen = HashSet::new();
+    for [θ1, ω1] in points {
+        seen.insert(((θ1 * factor).round() as i64, (ω1 * factor).round() as i64));
+    }
+    seen.len()
+}
+
+/// Full chaotic / regular classification of a starting state.
+///
+/// `λ_threshold` is the `λ_threshold=0.015` of the Python original: above it
+/// the orbit is labelled [`Classification::Chaotic`]; below it the Poincaré
+/// section decides between periodic, quasiperiodic and "need longer
+/// integration".
+pub fn classify(y0: State, λ_threshold: f64) -> Result<ClassificationResult, IntegratorError> {
+    let λ = largest_lyapunov(y0, LyapunovParams::default())?;
+    if λ > λ_threshold {
+        return Ok(ClassificationResult {
+            classification: Classification::Chaotic,
+            λ,
+            points: None,
+        });
+    }
+
+    // Regular → examine the Poincaré section.
+    let points = poincare_section(y0, PoincareParams::default())?;
+    if points.len() < 10 {
+        return Ok(ClassificationResult {
+            classification: Classification::NeedsLongerIntegration,
+            λ,
+            points: Some(points),
+        });
+    }
+
+    // Simple uniqueness test after modest rounding.
+    let unique = unique_rounded(&points, 3);
+    let classification = if unique < 12 {
+        Classification::Periodic // finite repeating set
+    } else {
+        Classification::Quasiperiodic // densifying a curve
+    };
+
+    Ok(ClassificationResult {
+        classification,
+        λ,
+        points: Some(points),
+    })
+}
+
+/// `np.arange(start, stop, step)` — evenly spaced values in `[start, stop)`.
+fn arange(start: f64, stop: f64, step: f64) -> Vec<f64> {
+    let n = ((stop - start) / step).ceil() as usize;
+    (0..n)
+        .map(|i| start + i as f64 * step)
+        .take_while(|t| *t < stop)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arange_matches_numpy_semantics() {
+        assert_eq!(arange(0.0, 100.0, 0.02).len(), 5000);
+        assert_eq!(arange(0.0, 200.0, 0.01).len(), 20000);
+        let t = arange(0.0, 100.0, 0.02);
+        assert!(*t.last().unwrap() < 100.0);
+        assert!(t.windows(2).all(|w| w[1] > w[0]));
+    }
+
+    #[test]
+    fn unique_rounded_collapses_nearby_points() {
+        let points = [
+            [0.0014, 0.2000],
+            [0.0016, 0.2000],
+            [0.0014, 0.2001], // duplicates the first point after rounding
+            [1.0000, -2.0000],
+        ];
+        assert_eq!(unique_rounded(&points, 3), 3);
+    }
+}
