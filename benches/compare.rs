@@ -350,9 +350,13 @@ fn verify() {
             ye[0]
         );
     }
-    // The circulating column is a chaos-sensitive guard (see CIRCULATING_Y0):
-    // its counts legitimately vary between backends, unlike the other columns.
-    println!("  ^ circulating start is chaotic: counts vary by backend by design\n");
+    // The λ case2 and circulating columns are chaos-sensitive (see
+    // CIRCULATING_Y0): both starts sit above the separatrix, so their values
+    // legitimately vary ~10% between backends, unlike the λ case1, poincaré
+    // and y_end columns.
+    println!(
+        "  ^ λ case2 and circulating starts are chaotic: values vary ~10% by backend by design\n"
+    );
 }
 
 fn configure() -> Criterion {

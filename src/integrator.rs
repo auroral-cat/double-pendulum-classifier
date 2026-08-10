@@ -227,11 +227,13 @@ where
             return Err(IntegratorError::StepSizeUnderflow { t });
         }
         let step = rk45_step(&f, t, &y, h_step, rtol, atol, k0);
-        // Size the next step from the *unclipped* proposal, so a boundary
-        // clip at `t_end` does not shrink the controller's own estimate.
+        // The controller's next proposal, from the error of the step actually
+        // taken (`h_step`, possibly clipped at `t_end`). The `h.max` keeps the
+        // previous estimate when the step was clipped and accepted: a
+        // boundary clip is not an error signal, so it must not shrink `h`.
         let proposed = step_factor(step.err_norm) * h_step;
         h = if step.err_norm <= 1.0 && h_step < h {
-            h.max(proposed) // the step was clipped at t_end, not by the error
+            h.max(proposed)
         } else {
             proposed
         };

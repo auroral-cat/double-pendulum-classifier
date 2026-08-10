@@ -137,11 +137,22 @@ pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorE
 /// supplied closure so callers can swap in their own ODE engine. The
 /// benchmark uses this to run the *identical* algorithm on every backend
 /// instead of maintaining a drift-prone copy.
+///
+/// The closure receives a state and a time grid and must return **one row per
+/// grid entry, in order** — the algorithm indexes `ref_sol[i]` and `seg[1]`
+/// directly. A closure that returns fewer rows than grid entries will panic
+/// (index out of bounds) rather than report an error.
 pub fn largest_lyapunov_with<I, E>(y0: State, p: LyapunovParams, integrate_fn: I) -> Result<f64, E>
 where
     I: Fn([f64; 4], &[f64]) -> Result<Vec<[f64; 4]>, E>,
 {
-    let t_eval = arange(0.0, p.t, p.dt);
+    let mut t_eval = arange(0.0, p.t, p.dt);
+    // A horizon shorter than the grid spacing collapses `arange` to a single
+    // entry; clamp to `[0.0, p.t]` so the integration is well-defined and the
+    // short-horizon fallback below (`t_start <= 0.0` → `Ok(0.0)`) can run.
+    if t_eval.len() < 2 {
+        t_eval = vec![0.0, p.t];
+    }
     let n_renorm = renorm_stride(p.renorm, p.dt);
 
     // Reference trajectory sampled on the full grid.
@@ -317,9 +328,16 @@ pub fn unique_scaled(points: &[[f64; 2]], n_buckets: f64) -> usize {
         });
         span = span.max(mx - mn);
     }
-    // A section whose total extent is at floating-point noise level is a
-    // single point: a genuinely periodic orbit.
-    if span < 1e-9 {
+    // Collapse sections whose extent is below ~1e-9 of their own radius to a
+    // single point. The threshold is relative to the orbit's size, so a tiny
+    // quasiperiodic curve — which scales down with its amplitude — is never
+    // mistaken for a point the way an absolute cutoff would: the thinnest
+    // resolvable curve is ~0.01 of the orbit's radius, seven orders above
+    // this. Genuinely periodic orbits are collapsed by the bucketing itself
+    // (their extent is ~1e-5 of the radius, far below the 1/200 cell); this
+    // guard only handles the machine-precision case where the section is a
+    // point to ~9 decimal places of its own size.
+    if span < 1e-9 * max_radius {
         return 1;
     }
     let cell = max_radius / n_buckets;
@@ -430,6 +448,20 @@ mod tests {
         let p = LyapunovParams {
             t: 1.0,
             renorm: 2.0,
+            ..Default::default()
+        };
+        let λ = largest_lyapunov(State::new(0.2, 0.0, -0.15, 0.0), p).unwrap();
+        assert_eq!(λ, 0.0);
+    }
+
+    #[test]
+    fn horizon_shorter_than_the_grid_spacing_returns_zero() {
+        // t < dt collapses `arange` to a single entry; the grid must be
+        // clamped to [0, t] so the short-horizon fallback runs instead of a
+        // confusing InvalidTimeGrid error.
+        let p = LyapunovParams {
+            t: 0.005,
+            dt: 0.02,
             ..Default::default()
         };
         let λ = largest_lyapunov(State::new(0.2, 0.0, -0.15, 0.0), p).unwrap();

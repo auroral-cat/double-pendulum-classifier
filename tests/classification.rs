@@ -26,8 +26,11 @@ fn tiny_generic_start_is_not_chaotic() {
 fn high_energy_start_is_strongly_chaotic() {
     let res = classify(State::new(2.4, 0.0, 0.0, 0.0), 0.015).unwrap();
     assert_eq!(res.classification, Classification::Chaotic);
-    // The literature value is λ₁ ≈ 1.09; a correct Benettin estimate must
-    // land well above 0.5 (the buggy Python original reported only ≈ 0.22).
+    // The literature value is λ₁ ≈ 1.09, but the two-trajectory estimate
+    // varies ~10% between integrators on a chaotic start (the benchmark's
+    // four backends span 1.09-1.21 for this exact start); a correct Benettin
+    // estimate must land well above 0.5 (the buggy Python original reported
+    // only ≈ 0.22).
     assert!(
         res.λ > 0.5,
         "λ = {} should be a large positive exponent",
@@ -106,8 +109,10 @@ fn off_mode_orbits_classify_the_same_at_any_amplitude() {
     // ratio = 1.35 is off the √2 normal mode: genuinely quasiperiodic. The
     // classification must not depend on the amplitude (the old fixed 1e-3
     // buckets read small amplitudes as periodic and large ones as
-    // quasiperiodic for the same orbit shape).
-    let verdicts: Vec<_> = [0.001f64, 0.003, 0.01, 0.03, 0.1]
+    // quasiperiodic for the same orbit shape). Down to 1e-10 the section's
+    // extent stays ~9% of the orbit's own radius — a real curve, never a
+    // point — so even the tiniest amplitudes must classify the same way.
+    let verdicts: Vec<_> = [1e-10f64, 1e-8, 1e-6, 0.001, 0.003, 0.01, 0.03, 0.1]
         .into_iter()
         .map(|a| {
             classify(State::new(a, 0.0, a * 1.35, 0.0), 0.015)
