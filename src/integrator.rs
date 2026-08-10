@@ -4,7 +4,10 @@
 //! per-component `rtol`/`atol` scaling, an RMS error norm, and dense output —
 //! the step sequence is chosen freely by the controller and the requested
 //! output times are read from the Dormand–Prince interpolant, so the results
-//! are independent of the output grid, exactly as in scipy.
+//! are independent of the output grid, exactly as in scipy. As in scipy, each
+//! step is bounded by the end of the requested span (`t_bound` there); it is
+//! *not* clipped at the individual output times, which would pin the step
+//! size to the grid spacing.
 
 use std::error::Error;
 use std::fmt;
@@ -198,6 +201,9 @@ where
     let mut k0 = Some(f0);
     let mut t = t_eval[0];
     let mut next = 1; // index of the next `t_eval` entry to output
+    // `t_eval` is validated to have at least two strictly increasing entries,
+    // so `t_eval[t_eval.len() - 1]` is the end of the requested span.
+    let t_end = t_eval[t_eval.len() - 1];
 
     // The step sequence is independent of the output grid: each accepted step
     // advances by the controller's own `h`, and the requested output points
@@ -208,15 +214,27 @@ where
     // measurement: the same trajectory integrated over a fine and a coarse
     // grid took different step sequences and diverged by ~1e-10 at t = 50 s.
     loop {
+        // Bound the step by the end of the requested span — `solve_ivp` does
+        // the same with its `t_bound`. Clipping here does *not* reintroduce
+        // the output-grid dependence that dense output removed (issue #7):
+        // only the final step is affected, and `t_end` is part of the
+        // caller's request, not of how densely the span is sampled.
+        let h_step = h.min(t_end - t);
         // The step must be large enough to actually advance `t`; otherwise
-        // `t += h` is a no-op and the loop would livelock (accepted steps make
-        // no progress, then `h` grows and is rejected again).
-        if t + h <= t {
+        // `t += h_step` is a no-op and the loop would livelock (accepted steps
+        // make no progress, then `h` grows and is rejected again).
+        if t + h_step <= t {
             return Err(IntegratorError::StepSizeUnderflow { t });
         }
-        let step = rk45_step(&f, t, &y, h, rtol, atol, k0);
-        let h_step = h; // the size the step was actually taken with
-        h *= step_factor(step.err_norm);
+        let step = rk45_step(&f, t, &y, h_step, rtol, atol, k0);
+        // Size the next step from the *unclipped* proposal, so a boundary
+        // clip at `t_end` does not shrink the controller's own estimate.
+        let proposed = step_factor(step.err_norm) * h_step;
+        h = if step.err_norm <= 1.0 && h_step < h {
+            h.max(proposed) // the step was clipped at t_end, not by the error
+        } else {
+            proposed
+        };
         if step.err_norm <= 1.0 {
             // Collect every output point covered by this step via the
             // interpolant (using the step's own size, not the next proposal).
@@ -450,5 +468,46 @@ mod tests {
         // step). Without the seed it would be 2 + 6 per step.
         let c = calls.load(Ordering::Relaxed);
         assert_eq!(c % 6, 1, "expected 1 + 6·steps RHS calls, got {c}");
+    }
+
+    #[test]
+    fn the_step_never_runs_past_the_requested_span() {
+        use std::cell::Cell;
+        let max_t = Cell::new(f64::MIN);
+        let f = |t: f64, y: &[f64; 1]| {
+            max_t.set(max_t.get().max(t));
+            [-0.001 * y[0]]
+        };
+        let sol = integrate(f, [1.0], &[0.0, 1.0], 1e-6, 1e-6).unwrap();
+        assert!(
+            max_t.get() <= 1.0,
+            "rhs evaluated at t = {} > 1.0",
+            max_t.get()
+        );
+        assert!((sol[1][0] - (-0.001f64).exp()).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_step_sequence_stays_independent_of_the_output_grid() {
+        // Issue #7: the same trajectory on a fine and a coarse grid must agree
+        // exactly at the shared times. Clipping at `t_end` (issue #15) must not
+        // break this. The coarse grid is a *subset* of the fine one, so the
+        // shared times are bit-identical — comparing two independently
+        // computed grids (e.g. `i * 0.02` vs `i * 0.2`) would inject a 1-ulp
+        // difference in the evaluation time itself (round-to-even tie-break at
+        // 0.6, 1.2) and fail on a pure representation artifact.
+        let f = |_t: f64, y: &[f64; 1]| [y[0]];
+        let fine: Vec<f64> = (0..=100).map(|i| i as f64 * 0.02).collect();
+        let coarse: Vec<f64> = fine.iter().step_by(10).copied().collect();
+        let sol_fine = integrate(f, [1.0], &fine, 1e-12, 1e-12).unwrap();
+        let sol_coarse = integrate(f, [1.0], &coarse, 1e-12, 1e-12).unwrap();
+        for k in 1..coarse.len() {
+            assert_eq!(
+                sol_fine[k * 10][0],
+                sol_coarse[k][0],
+                "mismatch at t = {}",
+                coarse[k]
+            );
+        }
     }
 }
