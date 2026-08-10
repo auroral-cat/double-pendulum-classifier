@@ -102,8 +102,8 @@ fn dispatch(args: &[&str]) -> Dispatch {
     match args {
         [] => Dispatch::Fail(HELP_TEXT.to_string()),
         ["-help" | "-h"] => Dispatch::Print(HELP_TEXT),
-        ["-help" | "-h", "help"] | ["-help" | "-h", "-help"] => Dispatch::Print(HELP_HELP_TEXT),
-        ["-help" | "-h", "demo"] | ["-help" | "-h", "-demo"] => Dispatch::Print(HELP_DEMO_TEXT),
+        ["-help" | "-h", "help" | "-help"] => Dispatch::Print(HELP_HELP_TEXT),
+        ["-help" | "-h", "demo" | "-demo"] => Dispatch::Print(HELP_DEMO_TEXT),
         ["-help" | "-h", other] => Dispatch::Fail(format!(
             "Error:\n- unknown command: '{other}' — try '-help' for the help menu.\n"
         )),
