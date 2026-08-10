@@ -25,7 +25,7 @@ fn main() -> ExitCode {
 
 /// The two demo starts from the Python original's `__main__`.
 fn run_demo() -> ExitCode {
-    println!("case 1 — small-angle start (weakly chaotic):");
+    println!("case 1 — small-angle start (regular):");
     let case1 = print_result(classify(
         State::new(0.2, 0.0, -0.15, 0.0),
         DEFAULT_Λ_THRESHOLD,

@@ -46,11 +46,13 @@ fn small_angle_start_is_not_chaotic() {
 }
 
 #[test]
-fn high_threshold_exercises_the_quasiperiodic_branch() {
-    // With an artificially high threshold the regular branch runs; this start
-    // gives 73 Poincaré crossings (Python: 73 unique after rounding), so it
-    // must be labelled quasiperiodic, not periodic.
-    let res = classify(State::new(1.0, 0.0, 0.5, 0.0), 2.0).unwrap();
+fn mid_energy_start_is_quasiperiodic_under_the_default_threshold() {
+    // λ for this start is ≈ 0.004 with the tail-difference estimator, well
+    // below the default 0.015 threshold, so it reaches the regular branch on
+    // its own — no artificially high threshold needed. It gives 73 Poincaré
+    // crossings, a closed curve, so it must be labelled quasiperiodic, not
+    // periodic.
+    let res = classify(State::new(1.0, 0.0, 0.5, 0.0), 0.015).unwrap();
     assert_eq!(res.classification, Classification::Quasiperiodic);
     assert!(res.points.as_ref().is_some_and(|pts| pts.len() >= 10));
 }
@@ -60,7 +62,7 @@ fn equilibrium_exercises_the_needs_longer_branch() {
     // At the stable bottom equilibrium θ₂ never crosses 0, so no Poincaré
     // points are collected (the λ estimate itself is unreliable there, which
     // is why we do not assert on it).
-    let res = classify(State::new(0.0, 0.0, 0.0, 0.0), 2.0).unwrap();
+    let res = classify(State::new(0.0, 0.0, 0.0, 0.0), 0.015).unwrap();
     assert_eq!(res.classification, Classification::NeedsLongerIntegration);
     assert_eq!(res.points.as_ref().map(Vec::len), Some(0));
 }

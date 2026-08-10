@@ -15,8 +15,9 @@ it can:
   different futures (chaotic).
 
 The interesting question is: *given a starting state, which one will it be?*
-You cannot tell just by looking. Even a small-angle start can turn out to be
-chaotic. This program answers the question automatically.
+You cannot tell just by looking — the answer depends on the exact starting
+state in a surprisingly complicated way. This program answers the question
+automatically.
 
 ## How it works
 
@@ -66,11 +67,11 @@ cargo clippy --all-targets
 Example output:
 
 ```
-case 1 — small-angle start (weakly chaotic):
-  λ = 0.0492  →  chaotic
+case 1 — small-angle start (regular):
+  λ = 0.0028  →  quasiperiodic (177 Poincaré points, 177 unique after rounding to 3 decimals)
 
 case 2 — high-energy start (strongly chaotic):
-  λ = 1.1346  →  chaotic
+  λ = 1.1087  →  chaotic
 ```
 
 ## Project layout
@@ -102,7 +103,8 @@ cargo bench --bench compare
   Rust fully supports.
 - The binary ships with zero dependencies; the benchmark crates are
   dev-dependencies only.
-- A word of caution: no classifier is perfect. The Lyapunov estimate is
-  noisy for orbits that are only weakly chaotic, so the fixed 0.015 threshold
-  can occasionally label a barely-regular orbit as chaotic. If a result seems
-  surprising, try a longer integration or a different starting state.
+- A word of caution: no classifier is perfect. The Lyapunov estimate has a
+  small noise floor, so the threshold is not a sharp physical boundary —
+  orbits with `λ` very close to it are borderline by construction. If a
+  result seems surprising, try a longer integration or a different starting
+  state.
