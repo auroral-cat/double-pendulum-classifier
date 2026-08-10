@@ -4,28 +4,45 @@ use double_pendulum_classifier::{
     Classification, G, State, classify, double_pendulum, energy, integrate,
 };
 
+const SQRT_2: f64 = std::f64::consts::SQRT_2;
+
 #[test]
-fn small_angle_start_is_weakly_chaotic() {
-    let res = classify(State::new(0.2, 0.0, -0.15, 0.0), 0.015).unwrap();
-    assert_eq!(res.classification, Classification::Chaotic);
-    assert!(
-        res.λ > 0.02,
-        "λ = {} should be clearly above the threshold",
-        res.λ
-    );
+fn tiny_linear_normal_mode_is_not_chaotic() {
+    // A start at 1e-4 rad is a linear harmonic oscillator to eight decimal
+    // places; its true λ₁ is 0, so it must not read as chaotic.
+    let res = classify(State::new(1e-4, 0.0, 1e-4 * SQRT_2, 0.0), 0.015).unwrap();
+    assert_ne!(res.classification, Classification::Chaotic);
+}
+
+#[test]
+fn tiny_generic_start_is_not_chaotic() {
+    // Deep in the KAM regime: bounded motion, λ₁ = 0.
+    let res = classify(State::new(1e-3, 0.0, 5e-4, 0.0), 0.015).unwrap();
+    assert_ne!(res.classification, Classification::Chaotic);
 }
 
 #[test]
 fn high_energy_start_is_strongly_chaotic() {
     let res = classify(State::new(2.4, 0.0, 0.0, 0.0), 0.015).unwrap();
     assert_eq!(res.classification, Classification::Chaotic);
-    // The true λ₁ is ≈ 1.1; a correct Benettin estimate must land well above 0.5
-    // (the buggy Python original reported only ≈ 0.22 here).
+    // The literature value is λ₁ ≈ 1.09; a correct Benettin estimate must
+    // land well above 0.5 (the buggy Python original reported only ≈ 0.22).
     assert!(
         res.λ > 0.5,
         "λ = {} should be a large positive exponent",
         res.λ
     );
+}
+
+#[test]
+fn small_angle_start_is_not_chaotic() {
+    // E = −2g·cos(0.2) − g·cos(−0.15) = −28.93, only ~1.7% above the potential
+    // floor −3g = −29.43: deep in the KAM regime, where invariant tori
+    // dominate. The old 1/T-normalised estimate mislabelled this orbit
+    // "weakly chaotic" — see issue #1.
+    let res = classify(State::new(0.2, 0.0, -0.15, 0.0), 0.015).unwrap();
+    assert_ne!(res.classification, Classification::Chaotic);
+    assert!(res.λ.abs() < 0.01, "λ = {} should be near zero", res.λ);
 }
 
 #[test]

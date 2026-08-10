@@ -43,7 +43,12 @@ pub struct LyapunovParams {
 impl Default for LyapunovParams {
     fn default() -> Self {
         Self {
-            t: 100.0,
+            // The tail-difference estimator (see [`largest_lyapunov`]) has a
+            // noise floor that decays like 1/√T: at T = 100 it is ≈ 0.02, right
+            // at the 0.015 threshold, so regular orbits read as chaotic. T =
+            // 400 brings it down to ≈ 0.005, comfortably below the threshold
+            // and far from the λ ≈ 1 of genuinely chaotic starts.
+            t: 400.0,
             dt: 0.02,
             δ0: 1e-8,
             renorm: 2.0,
@@ -104,35 +109,67 @@ pub struct ClassificationResult {
 /// the separation small so that `λ₁ ≈ (1/t) Σ log(d/δ₀)` even when the
 /// trajectories would otherwise decorrelate completely.
 ///
+/// For a regular orbit the log-sum does not grow — it converges to a bounded
+/// constant (`const ≈ 1.5` for this system), because the tangent-space
+/// stretching averages out over each interval. The plain average `log_sum / t`
+/// then decays like `const/t` and cannot be told apart from a genuinely small
+/// growth rate: at the shipped defaults `1.5/100 = 0.015`, exactly the
+/// chaotic threshold, so every regular orbit read as chaotic. The estimate
+/// therefore measures the **growth** of the log-sum: only checkpoints in the
+/// second half of the run contribute (`λ = tail_sum / elapsed`), so a bounded
+/// log-sum yields ≈ 0 regardless of the constant while a chaotic one keeps
+/// its positive growth rate.
+///
 /// # Errors
 ///
-/// Returns an [`IntegratorError`] if any of the integrations fail.
+/// Returns the integrator error if any of the integrations fail.
 pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorError> {
     let f = |t: f64, y: &[f64; 4]| double_pendulum(t, State::from_array(*y), G).to_array();
+    largest_lyapunov_with(y0, p, |y, t_eval| integrate(f, y, t_eval, RTOL, ATOL))
+}
+
+/// Same as [`largest_lyapunov`], but with the integrations delegated to the
+/// supplied closure so callers can swap in their own ODE engine. The
+/// benchmark uses this to run the *identical* algorithm on every backend
+/// instead of maintaining a drift-prone copy.
+pub fn largest_lyapunov_with<I, E>(y0: State, p: LyapunovParams, integrate_fn: I) -> Result<f64, E>
+where
+    I: Fn([f64; 4], &[f64]) -> Result<Vec<[f64; 4]>, E>,
+{
     let t_eval = arange(0.0, p.t, p.dt);
     let n_renorm = renorm_stride(p.renorm, p.dt);
 
     // Reference trajectory sampled on the full grid.
-    let ref_sol = integrate(f, y0.to_array(), &t_eval, RTOL, ATOL)?;
+    let ref_sol = integrate_fn(y0.to_array(), &t_eval)?;
 
     // Perturbed trajectory, re-integrated from a renormalised state at every
     // checkpoint so the separation stays of order δ₀.
     let mut y_pert = y0.to_array();
     y_pert[0] += p.δ0; // perturb θ₁ by δ₀
 
-    let mut log_sum = 0.0;
+    let half = p.t / 2.0;
+    let mut log_sum = 0.0; // full sum, kept for the short-horizon fallback
+    let mut tail_sum = 0.0; // sum over checkpoints in the second half
+    let mut tail_start: Option<f64> = None; // first checkpoint time ≥ half
     let mut t_start = 0.0;
     let mut i = n_renorm;
     while i < t_eval.len() {
         let t_end = t_eval[i];
-        let seg = integrate(f, y_pert, &[t_start, t_end], RTOL, ATOL)?;
+        let seg = integrate_fn(y_pert, &[t_start, t_end])?;
         y_pert = seg[1];
 
         let ref_i = ref_sol[i];
         let δ: [f64; 4] = std::array::from_fn(|k| y_pert[k] - ref_i[k]);
         let d = δ.iter().map(|&x| x * x).sum::<f64>().sqrt();
         if d > 0.0 {
-            log_sum += (d / p.δ0).ln();
+            let term = (d / p.δ0).ln();
+            log_sum += term;
+            if t_start >= half {
+                if tail_start.is_none() {
+                    tail_start = Some(t_start);
+                }
+                tail_sum += term;
+            }
             // Renormalise: keep the direction of the deviation, reset its size.
             y_pert = std::array::from_fn(|k| (p.δ0 / d).mul_add(δ[k], ref_i[k]));
         }
@@ -141,17 +178,22 @@ pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorE
         i += n_renorm;
     }
 
-    // `t_start` is the last checkpoint the loop reached, which is generally
-    // less than `p.t` (the grid does not divide evenly into `renorm` steps).
-    // Dividing by `p.t` would bias λ low by the uncovered tail. With the
-    // defaults the checkpoints end at t = 98.0, so the old divisor understated
-    // λ by 2%.
+    // `t_start` is the last checkpoint reached, which is generally less than
+    // `p.t` (the grid does not divide evenly into `renorm` steps); dividing by
+    // the requested horizon would bias λ low by the uncovered tail.
     if t_start <= 0.0 {
         // The horizon is shorter than one renormalisation interval and the
         // loop body never ran; there is nothing to measure.
         return Ok(0.0);
     }
-    Ok(log_sum / t_start)
+    let elapsed = tail_start.map_or(0.0, |s| t_start - s);
+    Ok(if elapsed > 0.0 {
+        tail_sum / elapsed
+    } else {
+        // Fewer than two checkpoint intervals: fall back to the plain average
+        // over the single interval actually covered.
+        log_sum / t_start
+    })
 }
 
 /// Poincaré section: record `(θ₁, ω₁)` each time `θ₂` crosses 0 upward.

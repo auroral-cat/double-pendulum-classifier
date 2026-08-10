@@ -13,7 +13,7 @@ pub mod integrator;
 
 pub use classifier::{
     Classification, ClassificationResult, LyapunovParams, PoincareParams, classify,
-    largest_lyapunov, poincare_section, renorm_stride, unique_rounded,
+    largest_lyapunov, largest_lyapunov_with, poincare_section, renorm_stride, unique_rounded,
 };
 pub use dynamics::{G, State, double_pendulum, energy};
 pub use integrator::{IntegratorError, integrate};

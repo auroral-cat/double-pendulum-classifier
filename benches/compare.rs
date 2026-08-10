@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, criterion_group};
 
-use double_pendulum_classifier::LyapunovParams;
+use double_pendulum_classifier::{LyapunovParams, State};
 
 use diffsol::{DenseMatrix, NalgebraMat, OdeBuilder, OdeSolverMethod};
 use ode_solvers::{Dopri5, OutputType, System, Vector4};
@@ -124,7 +124,12 @@ impl Backend for OdeSolversBackend {
         } else {
             x_end - x0
         };
-        let mut solver = Dopri5::new(
+        let out_type = if t_eval.len() == 2 {
+            OutputType::Sparse
+        } else {
+            OutputType::Dense
+        };
+        let mut solver = Dopri5::from_param(
             Pendulum,
             x0,
             x_end,
@@ -132,10 +137,18 @@ impl Backend for OdeSolversBackend {
             Vector4::new(y0[0], y0[1], y0[2], y0[3]),
             RTOL,
             ATOL,
+            0.9,        // safety factor
+            0.04,       // PI-controller beta
+            0.2,        // fac_min
+            10.0,       // fac_max
+            x_end - x0, // h_max
+            0.0,        // h (0 = auto)
+            // The default 100_001-step cap is too small for the 400 s
+            // Lyapunov reference run (~120k steps at rtol = 1e-12).
+            200_000,
+            1000, // n_stiff
+            out_type,
         );
-        if t_eval.len() == 2 {
-            solver.set_output(OutputType::Sparse);
-        }
         solver.integrate().map_err(|e| e.to_string())?;
         let xs = solver.x_out();
         let ys = solver.y_out();
@@ -263,49 +276,17 @@ impl Backend for PeroxideBackend {
 // Shared workloads
 // ---------------------------------------------------------------------------
 
-/// Full Benettin Lyapunov estimate (mirrors `classifier::largest_lyapunov`).
+/// Full Benettin Lyapunov estimate — runs the library's own algorithm
+/// ([`largest_lyapunov_with`](double_pendulum_classifier::largest_lyapunov_with))
+/// through the given backend, so the benchmark measures the identical control
+/// flow on every engine instead of maintaining a drift-prone copy.
 fn lyapunov_workload(b: &dyn Backend, y0: [f64; 4]) -> f64 {
-    let p = LyapunovParams::default();
-    let t_eval = arange(0.0, p.t, p.dt);
-    // `renorm` and `dt` are positive, so the quotient is non-negative.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let n_renorm = ((p.renorm / p.dt).floor() as usize).max(1);
-
-    let ref_sol = b.integrate(y0, &t_eval).expect("reference integration");
-
-    let mut y_pert = y0;
-    y_pert[0] += p.δ0; // perturb θ₁ by δ₀
-    let mut log_sum = 0.0;
-    let mut t_start = 0.0;
-    let mut i = n_renorm;
-    while i < t_eval.len() {
-        let t_end = t_eval[i];
-        let seg = b
-            .integrate(y_pert, &[t_start, t_end])
-            .expect("segment integration");
-        y_pert = seg[1];
-
-        let ref_i = ref_sol[i];
-        let δ = [
-            y_pert[0] - ref_i[0],
-            y_pert[1] - ref_i[1],
-            y_pert[2] - ref_i[2],
-            y_pert[3] - ref_i[3],
-        ];
-        let d = δ.iter().map(|&x| x * x).sum::<f64>().sqrt();
-        log_sum += (d / p.δ0).ln();
-        // Renormalise: keep the direction of the deviation, reset its size.
-        y_pert = [
-            (p.δ0 / d).mul_add(δ[0], ref_i[0]),
-            (p.δ0 / d).mul_add(δ[1], ref_i[1]),
-            (p.δ0 / d).mul_add(δ[2], ref_i[2]),
-            (p.δ0 / d).mul_add(δ[3], ref_i[3]),
-        ];
-
-        t_start = t_end;
-        i += n_renorm;
-    }
-    log_sum / p.t
+    double_pendulum_classifier::largest_lyapunov_with(
+        State::from_array(y0),
+        LyapunovParams::default(),
+        |y, t_eval| b.integrate(y, t_eval),
+    )
+    .expect("lyapunov integration")
 }
 
 /// Poincaré section: count upward crossings of `θ₂ = 0` over 200 s.
