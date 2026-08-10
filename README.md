@@ -86,16 +86,29 @@ case 2 — high-energy start (strongly chaotic):
 
 ## Performance
 
-This Rust version is fast: the two demo cases finish in about 25 milliseconds.
+This Rust version is fast: the two demo cases finish in about a tenth of a
+second.
 
 A benchmark against established ODE crates (`ode_solvers`, `diffsol`,
-`peroxide`) shows the built-in integrator is the fastest of the four on this
-problem, by about 1.2–1.5× over the closest contenders and 4× over
-`peroxide`. Run it yourself with:
+`peroxide`) is included. Against the two adaptive solvers — `ode_solvers`'
+Dopri5 and `diffsol`'s TSIT45 — the built-in integrator is the fastest by
+about 1.4–1.9× at `rtol = atol = 1e-12` (measured on the machine that wrote
+this README; the exact margin depends on the hardware).
+
+The `peroxide` row is **not** a like-for-like comparison: peroxide's adaptive
+API cannot land on requested output times, so it is driven as fixed-step RK4
+at `dt = 5e-4`. That does considerably more work than an adaptive method
+needs, and the ~4.6× gap reflects the step size rather than the crate. See
+the comments in `benches/compare.rs` for details.
+
+Run it yourself with:
 
 ```bash
-cargo bench --bench compare
+cargo bench --bench compare -- --bench
 ```
+
+(The explicit `--bench` tells criterion to run in benchmark mode rather than
+the one-shot smoke-test mode it defaults to when `harness = false`.)
 
 ## Notes
 

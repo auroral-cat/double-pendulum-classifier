@@ -1,14 +1,20 @@
 //! Backend comparison benchmark: hand-rolled RK45 vs `ode_solvers`,
 //! `diffsol` and `peroxide`.
 //!
-//! Every backend runs the *same* workloads — a 100 s reference integration,
-//! the full Benettin Lyapunov estimate (reference + 49 renormalised segment
+//! Every backend runs the *same* workloads — a 400 s reference integration,
+//! the full Benettin Lyapunov estimate (reference + 199 renormalised segment
 //! restarts) and the 200 s Poincaré section — at `rtol = atol = 1e-12`, the
 //! tolerance shipped in the classifier. The Lyapunov and Poincaré control
-//! flow is shared; only the ODE engine differs.
+//! flow is shared (the library's own [`largest_lyapunov_with`]); only the ODE
+//! engine differs.
 //!
 //! A verification table (λ values, crossing counts) is printed before the
 //! timing runs so that the results can be checked for scientific equivalence.
+//! It is *not* bit-level agreement: the `ode_solvers` backend snaps to the
+//! nearest stored dense-output sample via `nearest_index`, so two backends
+//! may legitimately differ in the last few digits of `y_end`.
+//!
+//! [`largest_lyapunov_with`]: double_pendulum_classifier::largest_lyapunov_with
 
 use std::hint::black_box;
 use std::time::Duration;

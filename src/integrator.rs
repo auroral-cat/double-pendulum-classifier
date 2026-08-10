@@ -308,12 +308,7 @@ where
 
 /// Evaluate the dense-output interpolant of an accepted step at
 /// `x = (t − t_old)/h ∈ [0, 1]` (see the `P` coefficients above).
-fn dense_output<const N: usize>(
-    y_old: &[f64; N],
-    h: f64,
-    k: &[[f64; N]; 7],
-    x: f64,
-) -> [f64; N] {
+fn dense_output<const N: usize>(y_old: &[f64; N], h: f64, k: &[[f64; N]; 7], x: f64) -> [f64; N] {
     let x2 = x * x;
     let x3 = x2 * x;
     let x4 = x3 * x;
