@@ -2,8 +2,9 @@
 //!
 //! Equal masses `m₁ = m₂ = 1` and equal lengths `L₁ = L₂ = 1`; the state
 //! vector is `y = [θ₁, ω₁, θ₂, ω₂]` (angles in radians, angular velocities in
-//! rad/s), where `θ₁` is the angle of the first rod from the vertical and `θ₂`
-//! the angle of the second rod relative to the first.
+//! rad/s), where `θ₁` and `θ₂` are the angles of the first and second rods
+//! measured from the downward vertical (both absolute, not relative to
+//! each other).
 
 /// Gravitational acceleration in m/s² (the `g` default of the Python original).
 pub const G: f64 = 9.81;
