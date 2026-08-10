@@ -3,9 +3,6 @@
 A small, friendly Rust program that watches a double pendulum and tells you
 what kind of motion it is in: **chaotic**, **periodic**, or **quasiperiodic**.
 
-It is a from-scratch Rust port of a Python experiment (`double_pendulum_classifier.py`),
-rebuilt with a clean, dependency-free design and made much faster in the process.
-
 ## The problem
 
 The double pendulum — two rods connected end to end, swinging under gravity —
@@ -34,10 +31,7 @@ angular velocities `ω1`, `ω2` — and runs three steps:
    trajectories are followed side by side. If they drift apart exponentially,
    the motion is chaotic; the growth rate is the largest Lyapunov exponent
    `λ`. The separation is periodically renormalized (the standard Benettin
-   method) so the measurement stays accurate. The original Python experiment
-   intended to do this but its renormalization never actually affected the
-   integration — a subtle bug that made the reported `λ` up to five times too
-   small. This port does it properly.
+   method) so the measurement stays accurate even over long integrations.
 
 3. **For regular motion, look at a Poincaré section.** If `λ` is small, the
    program records where the trajectory crosses a fixed slice of the motion
@@ -53,7 +47,7 @@ You need a recent Rust toolchain (edition 2024). There are **no external
 dependencies** — it builds with just the standard library.
 
 ```bash
-# Run the two demo cases from the original experiment
+# Run the two built-in demo cases
 cargo run --release
 
 # Classify your own starting state: θ1 ω1 θ2 ω2
@@ -91,10 +85,7 @@ case 2 — high-energy start (strongly chaotic):
 
 ## Performance
 
-This Rust version is fast. The two demo cases finish in about 25 milliseconds,
-compared with roughly 1.6 seconds for the original Python script — about
-**60–100× faster** — even though it integrates more carefully (tighter
-tolerances, needed to keep the Lyapunov measurement accurate).
+This Rust version is fast: the two demo cases finish in about 25 milliseconds.
 
 A benchmark against established ODE crates (`ode_solvers`, `diffsol`,
 `peroxide`) shows the built-in integrator is the fastest of the four on this
@@ -107,8 +98,8 @@ cargo bench --bench compare
 
 ## Notes
 
-- The code keeps the Greek-letter naming style of the original experiment
-  (`θ1`, `ω1`, `λ`, `δ0`, …), which Rust fully supports.
+- The code uses Greek-letter identifiers (`θ1`, `ω1`, `λ`, `δ0`, …), which
+  Rust fully supports.
 - The binary ships with zero dependencies; the benchmark crates are
   dev-dependencies only.
 - A word of caution: no classifier is perfect. The Lyapunov estimate is
