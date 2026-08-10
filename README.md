@@ -95,7 +95,7 @@ case 2 — high-energy start (strongly chaotic):
 ## Performance
 
 A benchmark against established ODE crates (`ode_solvers`, `diffsol`,
-`peroxide`) is included. Against the two adaptive solvers — `ode_solvers`'
+`peroxide`) is included. Against the two adaptive solvers — `ode_solvers`'s 
 Dopri5 and `diffsol`'s TSIT45 — the built-in integrator is the fastest by
 about 1.4–1.9× at `rtol = atol = 1e-12` (measured on the author's machine;
 the exact margin depends on the hardware).
