@@ -199,7 +199,12 @@ where
 /// Poincaré section: record `(θ₁, ω₁)` each time `θ₂` crosses 0 upward.
 ///
 /// Crossings are detected on the sampled grid and refined with linear
-/// interpolation, exactly as in the Python original.
+/// interpolation, exactly as in the Python original. Both angles are wrapped
+/// into `(−π, π]` first: the ODE integrates `θ` as an unbounded real, but the
+/// section condition is a statement about the physical configuration, which
+/// is 2π-periodic. Without the wrap, an orbit whose rods circulate would
+/// almost never be seen to cross `θ₂ = 0` again, and the recorded `θ₁` would
+/// drift by 2π every revolution.
 ///
 /// # Errors
 ///
@@ -212,15 +217,37 @@ pub fn poincare_section(y0: State, p: PoincareParams) -> Result<Vec<[f64; 2]>, I
     let mut points = Vec::new();
     for pair in sol.windows(2) {
         let (prev, cur) = (pair[0], pair[1]);
-        if prev[2] < 0.0 && cur[2] >= 0.0 {
-            // Linear interpolation for a slightly cleaner crossing.
-            let α = -prev[2] / (cur[2] - prev[2]);
-            let θ1_cross = α.mul_add(cur[0] - prev[0], prev[0]);
+        let (p2, c2) = (wrap_pi(prev[2]), wrap_pi(cur[2]));
+        // Skip the sample where the wrap itself jumps across the branch cut
+        // at ±π: that is an artefact of the coordinate, not a crossing of
+        // θ₂ = 0. Safe because dt is small — θ₂ cannot legitimately move by π
+        // in one sample at any energy this program handles.
+        if (c2 - p2).abs() > std::f64::consts::PI {
+            continue;
+        }
+        if p2 < 0.0 && c2 >= 0.0 {
+            // Linear interpolation for a slightly cleaner crossing. θ₁ is
+            // interpolated before wrapping (wrapping first would blend across
+            // the cut and produce garbage near ±π); ω₁ is a velocity, not an
+            // angle, and is never wrapped.
+            let α = -p2 / (c2 - p2);
+            let θ1_cross = wrap_pi(α.mul_add(cur[0] - prev[0], prev[0]));
             let ω1_cross = α.mul_add(cur[1] - prev[1], prev[1]);
             points.push([θ1_cross, ω1_cross]);
         }
     }
     Ok(points)
+}
+
+/// Wrap an angle into `(−π, π]`.
+fn wrap_pi(θ: f64) -> f64 {
+    use std::f64::consts::{PI, TAU};
+    let w = θ.rem_euclid(TAU);
+    if w > PI {
+        w - TAU
+    } else {
+        w
+    }
 }
 
 /// Number of distinct points after rounding each coordinate to `decimals`
