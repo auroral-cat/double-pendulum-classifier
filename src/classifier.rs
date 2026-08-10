@@ -218,7 +218,16 @@ pub fn poincare_section(y0: State, p: PoincareParams) -> Result<Vec<[f64; 2]>, I
     let f = |t: f64, y: &[f64; 4]| double_pendulum(t, State::from_array(*y), G).to_array();
     let t_eval = arange(0.0, p.t, p.dt);
     let sol = integrate(f, y0.to_array(), &t_eval, RTOL, ATOL)?;
+    Ok(section_from_solution(&sol))
+}
 
+/// Extract the Poincaré section from an already-integrated solution.
+///
+/// Separated from [`poincare_section`] so callers with their own ODE engine
+/// (the benchmark) run the identical crossing logic instead of a copy. Both
+/// angles are wrapped into `(−π, π]` and the sample where the wrap jumps
+/// across the branch cut is skipped.
+pub fn section_from_solution(sol: &[[f64; 4]]) -> Vec<[f64; 2]> {
     let mut points = Vec::new();
     for pair in sol.windows(2) {
         let (prev, cur) = (pair[0], pair[1]);
@@ -241,7 +250,7 @@ pub fn poincare_section(y0: State, p: PoincareParams) -> Result<Vec<[f64; 2]>, I
             points.push([θ1_cross, ω1_cross]);
         }
     }
-    Ok(points)
+    points
 }
 
 /// Wrap an angle into `(−π, π]`.

@@ -34,6 +34,10 @@ const ATOL: f64 = 1e-12;
 const CASE1: [f64; 4] = [0.2, 0.0, -0.15, 0.0];
 const CASE2: [f64; 4] = [2.4, 0.0, 0.0, 0.0];
 const POINCARE_Y0: [f64; 4] = [1.0, 0.0, 0.5, 0.0];
+/// Rod 2 spins over the top: raw θ₂ runs away monotonically, so a crossing
+/// test on unwrapped θ₂ reports ~5 points while the wrapped library logic
+/// reports dozens. Keeps the verification table honest about the wrap.
+const CIRCULATING_Y0: [f64; 4] = [0.0, 0.0, 0.0, 8.0];
 
 /// Right-hand side of the double pendulum on a plain `[f64; 4]`, shared by all
 /// backends so that the equations are bit-identical. Kept in textbook form,
@@ -296,12 +300,12 @@ fn lyapunov_workload(b: &dyn Backend, y0: [f64; 4]) -> f64 {
 }
 
 /// Poincaré section: count upward crossings of `θ₂ = 0` over 200 s.
+/// Poincaré section: count crossings over 200 s, using the library's own
+/// crossing logic so the benchmark cannot drift from it (issues #10, #16).
 fn poincare_workload(b: &dyn Backend, y0: [f64; 4]) -> usize {
     let t_eval = arange(0.0, 200.0, 0.01);
     let sol = b.integrate(y0, &t_eval).expect("poincaré integration");
-    sol.windows(2)
-        .filter(|w| w[0][2] < 0.0 && w[1][2] >= 0.0)
-        .count()
+    double_pendulum_classifier::section_from_solution(&sol).len()
 }
 
 /// Single 100 s reference integration sampled at dt = 0.02.
@@ -324,20 +328,22 @@ fn backends() -> Vec<Box<dyn Backend>> {
 fn verify() {
     println!("verification (rtol = atol = {:e}):", RTOL);
     println!(
-        "{:<20} {:>10} {:>10} {:>14} {:>12}",
-        "backend", "λ case1", "λ case2", "poincaré pts", "y_end[0]"
+        "{:<20} {:>10} {:>10} {:>14} {:>14} {:>12}",
+        "backend", "λ case1", "λ case2", "poincaré pts", "circulating", "y_end[0]"
     );
     for b in backends() {
         let λ1 = lyapunov_workload(b.as_ref(), CASE1);
         let λ2 = lyapunov_workload(b.as_ref(), CASE2);
         let n = poincare_workload(b.as_ref(), POINCARE_Y0);
+        let n_circ = poincare_workload(b.as_ref(), CIRCULATING_Y0);
         let ye = integrate_workload(b.as_ref());
         println!(
-            "{:<20} {:>10.5} {:>10.5} {:>14} {:>12.8}",
+            "{:<20} {:>10.5} {:>10.5} {:>14} {:>14} {:>12.8}",
             b.name(),
             λ1,
             λ2,
             n,
+            n_circ,
             ye[0]
         );
     }
