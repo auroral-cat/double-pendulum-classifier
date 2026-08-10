@@ -48,10 +48,10 @@ the solver itself is pure standard library.
 
 ```bash
 # Bring up the help menu
-cargo run --release -- help
+cargo run --release -- -help
 
 # Run the two built-in demo cases
-cargo run --release -- demo
+cargo run --release -- -demo
 
 # Classify your own starting state: θ1 ω1 θ2 ω2
 cargo run --release -- 0.05 0.0 0.0 0.0

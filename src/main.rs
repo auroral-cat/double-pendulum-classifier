@@ -1,8 +1,9 @@
 //! Command-line front end for the double-pendulum classifier.
 //!
-//! With no arguments (or `help`) the help menu is printed; `demo` runs the two
-//! built-in demo cases. Pass four or five numbers — `θ1 ω1 θ2 ω2`, plus an
-//! optional `λ_threshold` — to classify your own start.
+//! No arguments prints the help menu (a usage error, exit 2); `-help`/`-h`
+//! prints it on demand; `-demo`/`-d` runs the two built-in demo cases. Pass
+//! four or five numbers — `θ1 ω1 θ2 ω2`, plus an optional `λ_threshold` — to
+//! classify your own start.
 
 use std::process::ExitCode;
 
@@ -17,59 +18,126 @@ const DEFAULT_Λ_THRESHOLD: f64 = 0.015;
 /// The four state variables, in positional order.
 const STATE_VARS: [&str; 4] = ["θ1", "ω1", "θ2", "ω2"];
 
+/// The general help menu.
+const HELP_TEXT: &str = "\
+Double Pendulum Classifier
+
+Classifies a double pendulum's motion as chaotic, periodic, or
+quasiperiodic, given a starting state.
+
+Usage:
+    double-pendulum-classifier                  no arguments: prints this help
+    double-pendulum-classifier -help, -h        print this help
+    double-pendulum-classifier -help help       print help for the '-help' command
+    double-pendulum-classifier -help demo       print help for the '-demo' command
+    double-pendulum-classifier -demo, -d        run the two built-in demo cases
+    double-pendulum-classifier θ1 ω1 θ2 ω2 [λ_threshold]
+                                                classify your own starting state
+
+Arguments:
+    θ1, θ2        initial angles, in radians
+    ω1, ω2        initial angular velocities, in rad/s
+    λ_threshold   chaotic threshold: orbits with λ above it are labelled
+                  chaotic (optional; default 0.015)
+
+Examples:
+    cargo run --release -- 0.05 0.0 0.0 0.0
+    cargo run --release -- 1.0 0.0 0.5 0.0 0.1";
+
+/// Help specific to the `-help` command.
+const HELP_HELP_TEXT: &str = "\
+Help for '-help':
+
+'-help' (or '-h') prints this general help menu.
+'-help help' (or '-h help') prints help for the help command itself.
+'-help demo' (or '-h demo') prints help for the '-demo' command.";
+
+/// Help specific to the `-demo` command.
+const HELP_DEMO_TEXT: &str = "\
+Help for '-demo':
+
+'-demo' (or '-d') runs the two built-in demo cases: a small-angle regular
+orbit and a high-energy chaotic one. It takes no arguments; passing any
+is an error.";
+
 fn main() -> ExitCode {
     // Registers color_eyre's panic/error hooks; every `Report` printed with
     // `{:?}` below renders through them (colored when stderr is a TTY).
     color_eyre::install().expect("no other panic/error hook is installed");
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.as_slice() {
-        [] => print_help(),
-        [cmd] if cmd == "help" => print_help(),
-        [cmd] if cmd == "demo" => run_demo(),
-        _ => match parse_args(&args) {
-            Ok((y0, threshold)) => {
-                if print_result(classify(y0, threshold)) {
-                    ExitCode::SUCCESS
-                } else {
-                    ExitCode::FAILURE
-                }
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<&str> = raw.iter().map(String::as_str).collect();
+    match dispatch(&args) {
+        Dispatch::Print(text) => {
+            println!("{text}");
+            ExitCode::SUCCESS
+        }
+        Dispatch::Demo => run_demo(),
+        Dispatch::Classify(y0, threshold) => {
+            if print_result(classify(y0, threshold)) {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
             }
-            Err(report) => {
-                eprintln!("{report}");
-                ExitCode::from(2)
-            }
-        },
+        }
+        Dispatch::Fail(message) => {
+            eprintln!("{message}");
+            ExitCode::from(2)
+        }
     }
 }
 
-/// Prints the help menu. Also the default for an empty command line.
-fn print_help() -> ExitCode {
-    println!("Double Pendulum Classifier");
-    println!();
-    println!("Classifies a double pendulum's motion as chaotic, periodic, or");
-    println!("quasiperiodic, given a starting state.");
-    println!();
-    println!("Usage:");
-    println!("    double-pendulum-classifier");
-    println!("    double-pendulum-classifier help");
-    println!("    double-pendulum-classifier demo");
-    println!("    double-pendulum-classifier θ1 ω1 θ2 ω2 [λ_threshold]");
-    println!();
-    println!("Commands:");
-    println!("    help    Print this help menu.");
-    println!("    demo    Run the two built-in demo cases (a regular and a");
-    println!("            chaotic start).");
-    println!();
-    println!("Arguments:");
-    println!("    θ1, θ2        initial angles, in radians");
-    println!("    ω1, ω2        initial angular velocities, in rad/s");
-    println!("    λ_threshold   chaotic threshold: orbits with λ above it are");
-    println!("                  labelled chaotic (optional; default {DEFAULT_Λ_THRESHOLD})");
-    println!();
-    println!("Examples:");
-    println!("    cargo run --release -- 0.05 0.0 0.0 0.0");
-    println!("    cargo run --release -- 1.0 0.0 0.5 0.0 0.1");
-    ExitCode::SUCCESS
+/// What to do with a parsed command line.
+enum Dispatch {
+    /// Print the text to stdout and exit 0.
+    Print(&'static str),
+    /// Run the two demo cases and exit 0 or 1.
+    Demo,
+    /// Classify a start state and exit 0 or 1.
+    Classify(State, f64),
+    /// Print the message to stderr and exit 2.
+    Fail(String),
+}
+
+/// Interprets the command line.
+///
+/// A bare invocation is a usage error: the help menu is routed through
+/// `Fail` so it lands on stderr with exit 2. `-help`/`-h` accepts at most one
+/// argument naming a command to explain (`help` or `demo`); anything else is
+/// an unknown-command error, and extra arguments are an unknown-arguments
+/// error. `-demo`/`-d` takes no arguments. The bare words `help` and `demo`
+/// (no dash) are unknown commands with a did-you-mean hint.
+fn dispatch(args: &[&str]) -> Dispatch {
+    match args {
+        [] => Dispatch::Fail(HELP_TEXT.to_string()),
+        ["-help" | "-h"] => Dispatch::Print(HELP_TEXT),
+        ["-help" | "-h", "help"] => Dispatch::Print(HELP_HELP_TEXT),
+        ["-help" | "-h", "demo"] => Dispatch::Print(HELP_DEMO_TEXT),
+        ["-help" | "-h", other] => Dispatch::Fail(format!(
+            "Error:\n- unknown command: '{other}' — try '-help' for the help menu.\n"
+        )),
+        ["-help" | "-h", ..] => Dispatch::Fail(format!(
+            "Error:\n- unknown arguments: '{}' — '-help' expects at most one \
+             argument: 'help' or 'demo'. Try '-help' for the help menu.\n",
+            args[1..].join(" ")
+        )),
+        ["-demo" | "-d"] => Dispatch::Demo,
+        ["-demo" | "-d", ..] => Dispatch::Fail(format!(
+            "Error:\n- unknown arguments for '{}': '{}' — this command expected \
+             1 argument.\n",
+            args[0],
+            args[1..].join(" ")
+        )),
+        ["help", ..] => {
+            Dispatch::Fail("Error:\n- unknown command 'help' — did you mean '-help'?\n".to_string())
+        }
+        ["demo", ..] => {
+            Dispatch::Fail("Error:\n- unknown command 'demo' — did you mean '-demo'?\n".to_string())
+        }
+        _ => match parse_args(args) {
+            Ok((y0, threshold)) => Dispatch::Classify(y0, threshold),
+            Err(report) => Dispatch::Fail(report),
+        },
+    }
 }
 
 /// The two demo starts: a small-angle regular orbit and a high-energy
@@ -103,7 +171,7 @@ fn run_demo() -> ExitCode {
 /// naming the invalid arguments and the missing ones (`λ_threshold` is listed
 /// as optional). The heading is `Error:` for a single problem and `Errors:`
 /// otherwise.
-fn parse_args(args: &[String]) -> Result<(State, f64), String> {
+fn parse_args(args: &[&str]) -> Result<(State, f64), String> {
     const MAX_ARGS: usize = 5;
     debug_assert!(
         !args.is_empty(),
@@ -218,7 +286,7 @@ mod tests {
 
     #[test]
     fn two_args_with_an_invalid_float_report_the_exact_format() {
-        let report = parse_args(&["hi".to_string(), "0.5".to_string()]).unwrap_err();
+        let report = parse_args(&["hi", "0.5"]).unwrap_err();
         assert_eq!(
             report,
             "Error:\n- θ1 is not a valid float.\n\nMissing Parameters:\n- θ2 ω2 [optional: λ_threshold]\n"
@@ -227,8 +295,7 @@ mod tests {
 
     #[test]
     fn heading_is_plural_when_more_than_one_error() {
-        let report =
-            parse_args(&["hi".to_string(), "there".to_string(), "0.5".to_string()]).unwrap_err();
+        let report = parse_args(&["hi", "there", "0.5"]).unwrap_err();
         assert!(
             report.starts_with("Errors:\n- θ1 is not a valid float.\n- ω1 is not a valid float.\n")
         );
@@ -236,7 +303,7 @@ mod tests {
 
     #[test]
     fn missing_only_when_all_given_args_are_valid() {
-        let report = parse_args(&["1.0".to_string()]).unwrap_err();
+        let report = parse_args(&["1.0"]).unwrap_err();
         assert_eq!(
             report,
             "Missing Parameters:\n- ω1 θ2 ω2 [optional: λ_threshold]\n"
@@ -245,8 +312,7 @@ mod tests {
 
     #[test]
     fn three_args_miss_only_omega2_and_the_optional_threshold() {
-        let report =
-            parse_args(&["1.0".to_string(), "0.0".to_string(), "0.5".to_string()]).unwrap_err();
+        let report = parse_args(&["1.0", "0.0", "0.5"]).unwrap_err();
         assert_eq!(
             report,
             "Missing Parameters:\n- ω2 [optional: λ_threshold]\n"
@@ -255,13 +321,7 @@ mod tests {
 
     #[test]
     fn four_valid_args_parse_to_a_state_and_default_threshold() {
-        let (y0, threshold) = parse_args(&[
-            "0.05".to_string(),
-            "0.0".to_string(),
-            "0.0".to_string(),
-            "0.0".to_string(),
-        ])
-        .unwrap();
+        let (y0, threshold) = parse_args(&["0.05", "0.0", "0.0", "0.0"]).unwrap();
         // These literals are the exact `f64` values the strings parse to.
         #[allow(clippy::float_cmp)]
         {
@@ -272,14 +332,7 @@ mod tests {
 
     #[test]
     fn five_valid_args_parse_to_a_state_and_custom_threshold() {
-        let (y0, threshold) = parse_args(&[
-            "1.0".to_string(),
-            "0.0".to_string(),
-            "0.5".to_string(),
-            "0.0".to_string(),
-            "0.1".to_string(),
-        ])
-        .unwrap();
+        let (y0, threshold) = parse_args(&["1.0", "0.0", "0.5", "0.0", "0.1"]).unwrap();
         // Same literal-exactness argument as above.
         #[allow(clippy::float_cmp)]
         {
@@ -290,22 +343,95 @@ mod tests {
 
     #[test]
     fn too_many_arguments_is_reported() {
-        let report = parse_args(&vec!["1.0".to_string(); 6]).unwrap_err();
+        let report = parse_args(&["1.0"; 6]).unwrap_err();
         assert!(report.contains("too many arguments"));
         assert!(report.contains("got 6"));
     }
 
     #[test]
     fn an_invalid_fifth_argument_is_named_lambda_threshold() {
-        let report = parse_args(&[
-            "1.0".to_string(),
-            "0.0".to_string(),
-            "0.5".to_string(),
-            "0.0".to_string(),
-            "hi".to_string(),
-        ])
-        .unwrap_err();
+        let report = parse_args(&["1.0", "0.0", "0.5", "0.0", "hi"]).unwrap_err();
         assert!(report.contains("- λ_threshold is not a valid float.\n"));
+    }
+
+    #[test]
+    fn a_bare_invocation_routes_the_help_menu_to_stderr() {
+        // No arguments is a usage error: the help text goes out via `Fail`
+        // (stderr, exit 2) rather than `Print` (stdout, exit 0).
+        assert!(matches!(dispatch(&[]), Dispatch::Fail(_)));
+    }
+
+    #[test]
+    fn help_commands_and_aliases_print_to_stdout() {
+        assert!(matches!(dispatch(&["-help"]), Dispatch::Print(HELP_TEXT)));
+        assert!(matches!(dispatch(&["-h"]), Dispatch::Print(HELP_TEXT)));
+        assert!(matches!(
+            dispatch(&["-help", "help"]),
+            Dispatch::Print(HELP_HELP_TEXT)
+        ));
+        assert!(matches!(
+            dispatch(&["-h", "demo"]),
+            Dispatch::Print(HELP_DEMO_TEXT)
+        ));
+    }
+
+    #[test]
+    fn help_with_one_unknown_command_name_is_an_unknown_command_error() {
+        let Dispatch::Fail(message) = dispatch(&["-help", "foo"]) else {
+            panic!("expected Fail");
+        };
+        assert!(message.contains("unknown command: 'foo'"));
+        assert!(message.contains("try '-help'"));
+        let Dispatch::Fail(message) = dispatch(&["-h", "-demo"]) else {
+            panic!("expected Fail");
+        };
+        assert!(message.contains("unknown command: '-demo'"));
+    }
+
+    #[test]
+    fn help_with_extra_arguments_is_an_unknown_arguments_error() {
+        let Dispatch::Fail(message) = dispatch(&["-help", "foo", "bar"]) else {
+            panic!("expected Fail");
+        };
+        assert!(message.contains("unknown arguments"));
+        assert!(message.contains("'foo bar'"));
+        // Even a valid subcommand name followed by more arguments is an
+        // unknown-arguments error, not a help page.
+        let Dispatch::Fail(message) = dispatch(&["-help", "help", "x"]) else {
+            panic!("expected Fail");
+        };
+        assert!(message.contains("unknown arguments"));
+    }
+
+    #[test]
+    fn demo_commands_run_but_reject_extra_arguments() {
+        assert!(matches!(dispatch(&["-demo"]), Dispatch::Demo));
+        assert!(matches!(dispatch(&["-d"]), Dispatch::Demo));
+        let Dispatch::Fail(message) = dispatch(&["-d", "x"]) else {
+            panic!("expected Fail");
+        };
+        assert!(message.contains("unknown arguments for '-d'"));
+        assert!(message.contains("expected 1 argument"));
+    }
+
+    #[test]
+    fn bare_help_and_demo_suggest_the_dash_forms() {
+        let Dispatch::Fail(message) = dispatch(&["help"]) else {
+            panic!("expected Fail");
+        };
+        assert!(message.contains("did you mean '-help'?"));
+        let Dispatch::Fail(message) = dispatch(&["demo", "x"]) else {
+            panic!("expected Fail");
+        };
+        assert!(message.contains("did you mean '-demo'?"));
+    }
+
+    #[test]
+    fn four_valid_arguments_dispatch_to_classify() {
+        assert!(matches!(
+            dispatch(&["0.05", "0.0", "0.0", "0.0"]),
+            Dispatch::Classify(_, _)
+        ));
     }
 
     #[test]
