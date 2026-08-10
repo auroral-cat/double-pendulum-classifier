@@ -1,6 +1,9 @@
 //! Backend comparison benchmark: hand-rolled RK45 vs `ode_solvers`,
 //! `diffsol` and `peroxide`.
 //!
+//! (Whitelist for the deliberately short names here — see the same
+//! crate-root allow in `src/lib.rs`.)
+#![allow(clippy::similar_names, clippy::many_single_char_names)]
 //! Every backend runs the *same* workloads — a 400 s reference integration,
 //! the full Benettin Lyapunov estimate (reference + 199 renormalised segment
 //! restarts) and the 200 s Poincaré section — at `rtol = atol = 1e-12`, the

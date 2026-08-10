@@ -5,6 +5,14 @@
 //! the chaotic / periodic / quasiperiodic classifier.
 
 #![forbid(unsafe_code)]
+// Whitelist: these two pedantic lints fire on deliberately short, standard
+// names — `stop`/`step` for the grid helpers (the NumPy/Matlab arange
+// convention), `sum_y2`/`sum_f2` (Hairer's notation), and the ODE symbols
+// `f, t, y, h, k, x` — where renaming would make the math harder to read,
+// not easier. Crate-root attributes are used (rather than Cargo.toml's
+// `[lints]` table) because they are what survives a command-line
+// `-W clippy::pedantic` group flag.
+#![allow(clippy::similar_names, clippy::many_single_char_names)]
 
 pub mod classifier;
 pub mod dynamics;
