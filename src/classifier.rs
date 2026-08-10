@@ -44,10 +44,15 @@ impl Default for LyapunovParams {
     fn default() -> Self {
         Self {
             // The tail-difference estimator (see [`largest_lyapunov`]) has a
-            // noise floor that decays like 1/√T: at T = 100 it is ≈ 0.02, right
-            // at the 0.015 threshold, so regular orbits read as chaotic. T =
-            // 400 brings it down to ≈ 0.005, comfortably below the threshold
-            // and far from the λ ≈ 1 of genuinely chaotic starts.
+            // noise floor that decays roughly like 1/√T, but not
+            // monotonically — it is a noisy quantity, not a smooth bound.
+            // Measured over a 64-point grid of low-energy regular starts, the
+            // worst residual λ is ≈ 0.012 at T = 400 and ≈ 0.004 at T = 800,
+            // against the 0.015 chaotic threshold. T = 400 classifies every
+            // start sampled correctly, but the margin is only ~1.3×; raise
+            // this to 800 if you need headroom, at 2× the runtime. Genuinely
+            // chaotic starts sit at λ ≈ 1.1 and are never close to the
+            // threshold.
             t: 400.0,
             dt: 0.02,
             δ0: 1e-8,
