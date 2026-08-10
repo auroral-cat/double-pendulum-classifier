@@ -141,7 +141,17 @@ pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorE
         i += n_renorm;
     }
 
-    Ok(log_sum / p.t)
+    // `t_start` is the last checkpoint the loop reached, which is generally
+    // less than `p.t` (the grid does not divide evenly into `renorm` steps).
+    // Dividing by `p.t` would bias λ low by the uncovered tail. With the
+    // defaults the checkpoints end at t = 98.0, so the old divisor understated
+    // λ by 2%.
+    if t_start <= 0.0 {
+        // The horizon is shorter than one renormalisation interval and the
+        // loop body never ran; there is nothing to measure.
+        return Ok(0.0);
+    }
+    Ok(log_sum / t_start)
 }
 
 /// Poincaré section: record `(θ₁, ω₁)` each time `θ₂` crosses 0 upward.
@@ -268,6 +278,18 @@ mod tests {
         let t = arange(0.0, 100.0, 0.02);
         assert!(*t.last().unwrap() < 100.0);
         assert!(t.windows(2).all(|w| w[1] > w[0]));
+    }
+
+    #[test]
+    fn horizon_shorter_than_one_renorm_interval_returns_zero() {
+        // The loop body never runs; must return Ok(0.0), not NaN or a panic.
+        let p = LyapunovParams {
+            t: 1.0,
+            renorm: 2.0,
+            ..Default::default()
+        };
+        let λ = largest_lyapunov(State::new(0.2, 0.0, -0.15, 0.0), p).unwrap();
+        assert_eq!(λ, 0.0);
     }
 
     #[test]
