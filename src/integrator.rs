@@ -76,7 +76,7 @@ pub enum IntegratorError {
     InvalidTimeGrid,
     /// `rtol` and `atol` must both be strictly positive.
     InvalidTolerance { rtol: f64, atol: f64 },
-    /// The adaptive step size collapsed below `f64::MIN_POSITIVE` at time `t`
+    /// The adaptive step size collapsed below the ulp of `t` at time `t`
     /// (the right-hand side is probably stiff or singular).
     StepSizeUnderflow { t: f64 },
 }
@@ -156,7 +156,13 @@ where
         // guaranteed to terminate.
         loop {
             let h_step = h.min(tb - t);
-            if h_step < f64::MIN_POSITIVE {
+            // The step must be large enough to actually advance `t`. Comparing
+            // against `f64::MIN_POSITIVE` is not enough: once `h_step` falls
+            // below one ulp of `t`, `t += h_step` is a no-op and the loop
+            // livelocks (accepted steps make no progress, then `h` grows and
+            // is rejected again). `t + h_step <= t` is the direct expression
+            // of the failure condition and needs no tolerance constant.
+            if t + h_step <= t {
                 return Err(IntegratorError::StepSizeUnderflow { t });
             }
             let (y_new, err_norm, k7) = rk45_step(&f, t, &y, h_step, rtol, atol, k0);
@@ -322,5 +328,17 @@ mod tests {
                 atol: -1.0
             })
         ));
+    }
+
+    #[test]
+    fn blow_up_reports_underflow_instead_of_hanging() {
+        let f = |_t: f64, y: &[f64; 1]| [y[0] * y[0] * y[0]];
+        // y' = y³ with y(0) = 10 blows up at t = 1/(2·10²) = 0.005; must
+        // return an error, not spin forever.
+        let r = integrate(f, [10.0], &[0.0, 10.0], 1e-9, 1e-9);
+        assert!(
+            matches!(r, Err(IntegratorError::StepSizeUnderflow { t }) if (t - 0.005).abs() < 1e-4),
+            "expected StepSizeUnderflow near t = 0.005, got {r:?}"
+        );
     }
 }
