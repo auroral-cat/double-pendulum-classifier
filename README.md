@@ -43,8 +43,8 @@ means chaotic; otherwise the Poincaré section decides.
 
 ## Getting started
 
-You need Rust 2024 edition. The binary's only dependency is `color-eyre`
-(error reporting); the solver itself is pure standard library.
+You need Rust 2024 edition. This crate uses minimal dependencies for error reporting;
+the solver itself is pure standard library.
 
 ```bash
 # Bring up the help menu
@@ -106,11 +106,6 @@ cargo bench --bench compare
 ```
 
 ## Notes
-
-- The binary's only dependency is `color-eyre` for error reporting; the
-  benchmark crates (`criterion`, `diffsol`, `ode_solvers`, `peroxide`, plus
-  `anyhow`, which peroxide's `ODEProblem` trait requires) are dev-dependencies
-  only.
 - A word of caution: no classifier is perfect. The Lyapunov estimate has a
   small noise floor, so the threshold is not a sharp physical boundary —
   orbits with `λ` very close to it are borderline by construction. If a

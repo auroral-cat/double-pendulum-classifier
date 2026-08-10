@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-color-eyre = "0.6.5"
+color-eyre = "0.6.5" # my beloved
 
 [dev-dependencies]
 # peroxide 0.43's `ODEProblem` trait hardcodes `anyhow::Result` as the `rhs`
