@@ -339,12 +339,13 @@ pub fn classify(y0: State, λ_threshold: f64) -> Result<ClassificationResult, In
 
     // Scale-relative uniqueness test: bucket at a fraction of the orbit's own
     // size (see [`unique_scaled`]), so amplitude does not drive the decision.
-    // A periodic orbit's section is a small finite set that stops growing; a
-    // quasiperiodic one densifies a curve, so distinct cells scale with the
-    // number of points.
-    let n = points.len();
+    // A periodic orbit's section collapses to a handful of cells; a
+    // quasiperiodic one spreads over many. The count saturates with the
+    // horizon rather than growing with it, so it must be compared against a
+    // constant — comparing it against a fraction of `points.len()` makes the
+    // verdict depend on the integration horizon (issue #12).
     let unique = unique_scaled(&points, 200.0);
-    let classification = if unique <= 10 || (unique as f64) < 0.25 * n as f64 {
+    let classification = if unique <= 10 {
         Classification::Periodic // finite repeating set
     } else {
         Classification::Quasiperiodic // densifying a curve

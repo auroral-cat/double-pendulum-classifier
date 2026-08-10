@@ -1,7 +1,8 @@
 //! End-to-end tests for the classifier and the integrator.
 
 use double_pendulum_classifier::{
-    Classification, G, State, classify, double_pendulum, energy, integrate, poincare_section,
+    Classification, G, PoincareParams, State, classify, double_pendulum, energy, integrate,
+    poincare_section, unique_scaled,
 };
 
 const SQRT_2: f64 = std::f64::consts::SQRT_2;
@@ -118,6 +119,19 @@ fn off_mode_orbits_classify_the_same_at_any_amplitude() {
         verdicts.windows(2).all(|w| w[0] == w[1]),
         "classifications differ across amplitudes: {verdicts:?}"
     );
+}
+
+#[test]
+fn classification_does_not_depend_on_the_poincare_horizon() {
+    // `unique_scaled` saturates with the horizon while the point count grows,
+    // so the verdict must be compared against a constant, not a fraction of
+    // the point count (issue #12).
+    let y0 = State::new(0.01, 0.0, 0.01 * 1.35, 0.0);
+    for t in [200.0, 800.0, 3200.0] {
+        let pts = poincare_section(y0, PoincareParams { t, dt: 0.01 }).unwrap();
+        let u = unique_scaled(&pts, 200.0);
+        assert!(u > 10, "T={t}: off-mode orbit collapsed to {u} cells");
+    }
 }
 
 #[test]
