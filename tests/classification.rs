@@ -1,7 +1,7 @@
 //! End-to-end tests for the classifier and the integrator.
 
 use double_pendulum_classifier::{
-    Classification, G, State, classify, double_pendulum, energy, integrate,
+    Classification, G, State, classify, double_pendulum, energy, integrate, poincare_section,
 };
 
 const SQRT_2: f64 = std::f64::consts::SQRT_2;
@@ -86,9 +86,10 @@ fn both_rods_circulating_still_crosses_the_section() {
 #[test]
 fn section_angles_are_wrapped_into_minus_pi_pi() {
     let pts = poincare_section(State::new(0.0, 3.0, 0.0, 3.0), Default::default()).unwrap();
-    assert!(pts
-        .iter()
-        .all(|[θ1, _]| *θ1 > -std::f64::consts::PI && *θ1 <= std::f64::consts::PI));
+    assert!(
+        pts.iter()
+            .all(|[θ1, _]| *θ1 > -std::f64::consts::PI && *θ1 <= std::f64::consts::PI)
+    );
 }
 
 #[test]
@@ -97,6 +98,46 @@ fn wrapping_does_not_change_a_non_circulating_section() {
     // (73 points, as before the fix).
     let pts = poincare_section(State::new(1.0, 0.0, 0.5, 0.0), Default::default()).unwrap();
     assert!((73..=79).contains(&pts.len()), "got {} points", pts.len());
+}
+
+#[test]
+fn off_mode_orbits_classify_the_same_at_any_amplitude() {
+    // ratio = 1.35 is off the √2 normal mode: genuinely quasiperiodic. The
+    // classification must not depend on the amplitude (the old fixed 1e-3
+    // buckets read small amplitudes as periodic and large ones as
+    // quasiperiodic for the same orbit shape).
+    let verdicts: Vec<_> = [0.001f64, 0.003, 0.01, 0.03, 0.1]
+        .into_iter()
+        .map(|a| {
+            classify(State::new(a, 0.0, a * 1.35, 0.0), 0.015)
+                .unwrap()
+                .classification
+        })
+        .collect();
+    assert!(
+        verdicts.windows(2).all(|w| w[0] == w[1]),
+        "classifications differ across amplitudes: {verdicts:?}"
+    );
+}
+
+#[test]
+fn normal_modes_are_periodic() {
+    // θ₂ = ±√2·θ₁ is a normal mode of the linearised system; its section is a
+    // single point (a thin torus collapses to one bucket relative to the
+    // orbit size).
+    let plus = classify(State::new(0.01, 0.0, 0.01 * SQRT_2, 0.0), 0.015).unwrap();
+    assert_eq!(plus.classification, Classification::Periodic);
+    let minus = classify(State::new(0.01, 0.0, -0.01 * SQRT_2, 0.0), 0.015).unwrap();
+    assert_eq!(minus.classification, Classification::Periodic);
+}
+
+#[test]
+fn off_mode_orbits_are_quasiperiodic() {
+    // Same amplitude as the normal mode, different ratio: the section is a
+    // real curve, not a point — the amplitude-based rule can never pass both
+    // this and normal_modes_are_periodic.
+    let res = classify(State::new(0.01, 0.0, 0.01 * 1.35, 0.0), 0.015).unwrap();
+    assert_eq!(res.classification, Classification::Quasiperiodic);
 }
 
 #[test]

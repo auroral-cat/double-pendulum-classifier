@@ -243,15 +243,15 @@ pub fn poincare_section(y0: State, p: PoincareParams) -> Result<Vec<[f64; 2]>, I
 fn wrap_pi(θ: f64) -> f64 {
     use std::f64::consts::{PI, TAU};
     let w = θ.rem_euclid(TAU);
-    if w > PI {
-        w - TAU
-    } else {
-        w
-    }
+    if w > PI { w - TAU } else { w }
 }
 
 /// Number of distinct points after rounding each coordinate to `decimals`
 /// places (the `np.round(pts, decimals=3)` + `np.unique(axis=0)` test).
+///
+/// Kept for display purposes ([`crate::main`] uses it when printing a
+/// section); the classification itself uses [`unique_scaled`], which is
+/// scale-free.
 pub fn unique_rounded(points: &[[f64; 2]], decimals: i32) -> usize {
     let factor = 10f64.powi(decimals);
     let mut seen = HashSet::new();
@@ -261,6 +261,48 @@ pub fn unique_rounded(points: &[[f64; 2]], decimals: i32) -> usize {
         #[allow(clippy::cast_possible_truncation)]
         let key = ((θ1 * factor).round() as i64, (ω1 * factor).round() as i64);
         seen.insert(key);
+    }
+    seen.len()
+}
+
+/// Number of distinct points after bucketing each coordinate at
+/// `max_radius / n_buckets`, where `max_radius` is the largest distance of a
+/// section point from the origin (`θ₁ = ω₁ = 0`, the stable equilibrium).
+///
+/// Scale-free: multiplying the whole section by a constant scales both the
+/// bucket size and the section, so the count does not change. The reference
+/// scale is the orbit's own size, *not* the section's span: a thin invariant
+/// curve near a periodic orbit and a fat one both trace the same number of
+/// span-sized cells, so span-bucketing cannot tell them apart, while relative
+/// to the orbit size the thin curve collapses to a handful of cells.
+pub fn unique_scaled(points: &[[f64; 2]], n_buckets: f64) -> usize {
+    if points.is_empty() {
+        return 0;
+    }
+    let mut span = 0.0f64;
+    let mut max_radius = 0.0f64;
+    for [θ1, ω1] in points {
+        max_radius = max_radius.max((θ1 * θ1 + ω1 * ω1).sqrt());
+    }
+    for axis in 0..2 {
+        let (mn, mx) = points.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| {
+            (lo.min(p[axis]), hi.max(p[axis]))
+        });
+        span = span.max(mx - mn);
+    }
+    // A section whose total extent is at floating-point noise level is a
+    // single point: a genuinely periodic orbit.
+    if span < 1e-9 {
+        return 1;
+    }
+    let cell = max_radius / n_buckets;
+    if cell <= 0.0 {
+        return 1;
+    }
+    let mut seen = HashSet::new();
+    for [θ1, ω1] in points {
+        #[allow(clippy::cast_possible_truncation)]
+        seen.insert(((θ1 / cell).round() as i64, (ω1 / cell).round() as i64));
     }
     seen.len()
 }
@@ -295,9 +337,14 @@ pub fn classify(y0: State, λ_threshold: f64) -> Result<ClassificationResult, In
         });
     }
 
-    // Simple uniqueness test after modest rounding.
-    let unique = unique_rounded(&points, 3);
-    let classification = if unique < 12 {
+    // Scale-relative uniqueness test: bucket at a fraction of the orbit's own
+    // size (see [`unique_scaled`]), so amplitude does not drive the decision.
+    // A periodic orbit's section is a small finite set that stops growing; a
+    // quasiperiodic one densifies a curve, so distinct cells scale with the
+    // number of points.
+    let n = points.len();
+    let unique = unique_scaled(&points, 200.0);
+    let classification = if unique <= 10 || (unique as f64) < 0.25 * n as f64 {
         Classification::Periodic // finite repeating set
     } else {
         Classification::Quasiperiodic // densifying a curve
