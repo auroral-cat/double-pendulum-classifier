@@ -1,9 +1,10 @@
 //! A self-contained Dormand–Prince 5(4) (RK45) adaptive integrator.
 //!
-//! It reproduces the error-control semantics of scipy's `solve_ivp` with
-//! `method="RK45"` — per-component `rtol`/`atol` scaling, an RMS error norm
-//! and step clipping at the requested output times — so that results stay
-//! comparable with the original Python experiment.
+//! It reproduces the semantics of scipy's `solve_ivp` with `method="RK45"`:
+//! per-component `rtol`/`atol` scaling, an RMS error norm, and dense output —
+//! the step sequence is chosen freely by the controller and the requested
+//! output times are read from the Dormand–Prince interpolant, so the results
+//! are independent of the output grid, exactly as in scipy.
 
 use std::error::Error;
 use std::fmt;
@@ -57,6 +58,52 @@ const B5: [f64; 7] = [
     0.0,
 ];
 
+/// Dense-output coefficients `P` (the Shampine quartic interpolant used by
+/// scipy for RK45):
+///
+/// ```text
+/// y(t_old + x·h) = y_old + h·Σ_s k_s·(P[s][0]·x + P[s][1]·x² + P[s][2]·x³ + P[s][3]·x⁴)
+/// ```
+const P: [[f64; 4]; 7] = [
+    [
+        1.0,
+        -8048581381.0 / 2820520608.0,
+        8663915743.0 / 2820520608.0,
+        -12715105075.0 / 11282082432.0,
+    ],
+    [0.0; 4],
+    [
+        0.0,
+        131558114200.0 / 32700410799.0,
+        -68118460800.0 / 10900136933.0,
+        87487479700.0 / 32700410799.0,
+    ],
+    [
+        0.0,
+        -1754552775.0 / 470086768.0,
+        14199869525.0 / 1410260304.0,
+        -10690763975.0 / 1880347072.0,
+    ],
+    [
+        0.0,
+        127303824393.0 / 49829197408.0,
+        -318862633887.0 / 49829197408.0,
+        701980252875.0 / 199316789632.0,
+    ],
+    [
+        0.0,
+        -282668133.0 / 205662961.0,
+        2019193451.0 / 616988883.0,
+        -1453857185.0 / 822651844.0,
+    ],
+    [
+        0.0,
+        40617522.0 / 29380423.0,
+        -110615467.0 / 29380423.0,
+        69997945.0 / 29380423.0,
+    ],
+];
+
 /// Fourth-order (embedded) weights `b*_s`; the local error estimate is
 /// `h · Σ_s (b_s − b*_s) k_s`.
 const B4: [f64; 7] = [
@@ -106,11 +153,12 @@ impl Error for IntegratorError {}
 /// Integrate `ẏ = f(t, y)` starting from `y0` at `t_eval[0]`, sampling the
 /// solution at every entry of `t_eval`.
 ///
-/// `t_eval` must be strictly increasing; each interval is integrated with the
-/// Dormand–Prince 5(4) pair, clipping the adaptive step at the interval end
-/// (the same strategy `solve_ivp` uses for `t_eval` output). `rtol` and
-/// `atol` are the per-component relative/absolute tolerances and must both be
-/// strictly positive.
+/// `t_eval` must be strictly increasing. The Dormand–Prince 5(4) pair runs
+/// with free adaptive steps chosen solely by the error controller, and each
+/// requested output time is read from the step's dense-output interpolant —
+/// the step sequence does not depend on the output grid (the same strategy
+/// `solve_ivp` uses). `rtol` and `atol` are the per-component
+/// relative/absolute tolerances and must both be strictly positive.
 ///
 /// # Errors
 ///
@@ -146,48 +194,64 @@ where
     // `k₇ = f(t + h, y₅)` of an accepted step is exactly the first stage of
     // the next step, so it only has to be evaluated once per step.
     let mut k0 = None;
+    let mut t = t_eval[0];
+    let mut next = 1; // index of the next `t_eval` entry to output
 
-    for interval in t_eval.windows(2) {
-        let (ta, tb) = (interval[0], interval[1]);
-        let mut t = ta;
-        // A `loop`/`break` form of the floating-point step loop: each accepted
-        // step advances `t` by at least one ulp and rejected steps shrink `h`
-        // geometrically (guarded by the underflow check below), so the loop is
-        // guaranteed to terminate.
-        loop {
-            let h_step = h.min(tb - t);
-            // The step must be large enough to actually advance `t`. Comparing
-            // against `f64::MIN_POSITIVE` is not enough: once `h_step` falls
-            // below one ulp of `t`, `t += h_step` is a no-op and the loop
-            // livelocks (accepted steps make no progress, then `h` grows and
-            // is rejected again). `t + h_step <= t` is the direct expression
-            // of the failure condition and needs no tolerance constant.
-            if t + h_step <= t {
-                return Err(IntegratorError::StepSizeUnderflow { t });
+    // The step sequence is independent of the output grid: each accepted step
+    // advances by the controller's own `h`, and the requested output points
+    // are read from the dense-output interpolant. Clipping the step at every
+    // `t_eval` entry (as this module once did) pins the step size to the grid
+    // spacing and makes the step sequence a function of the grid, which
+    // injects spurious separation into the two-trajectory Lyapunov
+    // measurement: the same trajectory integrated over a fine and a coarse
+    // grid took different step sequences and diverged by ~1e-10 at t = 50 s.
+    loop {
+        // The step must be large enough to actually advance `t`; otherwise
+        // `t += h` is a no-op and the loop would livelock (accepted steps make
+        // no progress, then `h` grows and is rejected again).
+        if t + h <= t {
+            return Err(IntegratorError::StepSizeUnderflow { t });
+        }
+        let step = rk45_step(&f, t, &y, h, rtol, atol, k0);
+        let h_step = h; // the size the step was actually taken with
+        h *= step_factor(step.err_norm);
+        if step.err_norm <= 1.0 {
+            // Collect every output point covered by this step via the
+            // interpolant (using the step's own size, not the next proposal).
+            while next < t_eval.len() && t_eval[next] <= t + h_step {
+                let x = (t_eval[next] - t) / h_step;
+                ys.push(dense_output(&y, h_step, &step.k, x));
+                next += 1;
             }
-            let (y_new, err_norm, k7) = rk45_step(&f, t, &y, h_step, rtol, atol, k0);
-            h = step_factor(err_norm) * h_step;
-            if err_norm <= 1.0 {
-                t += h_step;
-                y = y_new;
-                // `k₇ = f(t + h, y₅)` is `f` at the new step origin; reuse it
-                // as the next step's first stage. On rejection the step origin
-                // is unchanged, so the previous `k0` stays valid.
-                k0 = Some(k7);
-                if t >= tb {
-                    break;
-                }
+            t += h_step;
+            y = step.y5;
+            // `k₇ = f(t + h, y₅)` is `f` at the new step origin; reuse it as
+            // the next step's first stage. On rejection the step origin is
+            // unchanged, so the previous `k0` stays valid.
+            k0 = Some(step.k[6]);
+            if next == t_eval.len() {
+                break;
             }
         }
-        ys.push(y);
     }
 
     Ok(ys)
 }
 
+/// One Dormand–Prince step of size `h`.
+struct DpStep<const N: usize> {
+    /// 5th-order update `y₅`.
+    y5: [f64; N],
+    /// RMS error norm with per-component scaling
+    /// `atol + rtol · max(|y|, |y₅|)`.
+    err_norm: f64,
+    /// All seven stages `k_s = f(t + c_s·h, y_s)`, kept for the dense-output
+    /// interpolant and the FSAL reuse (`k[6]` is `f` at the new step origin).
+    k: [[f64; N]; 7],
+}
+
 /// One Dormand–Prince step of size `h`: returns the 5th-order update, the
-/// RMS error norm with per-component scaling `atol + rtol · max(|y|, |y₅|)`,
-/// and the final FSAL stage `k₇ = f(t + h, y₅)`.
+/// RMS error norm, and the seven stages.
 ///
 /// `k0` is the first stage `f(t, y)`, usually reused from the previous
 /// accepted step (see [`integrate`]); pass `None` to evaluate it fresh.
@@ -199,7 +263,7 @@ fn rk45_step<const N: usize, F>(
     rtol: f64,
     atol: f64,
     k0: Option<[f64; N]>,
-) -> ([f64; N], f64, [f64; N])
+) -> DpStep<N>
 where
     F: Fn(f64, &[f64; N]) -> [f64; N],
 {
@@ -237,7 +301,29 @@ where
         .sum::<f64>();
     let err_norm = (err_sq / N as f64).sqrt();
 
-    (y5, err_norm, k[6])
+    DpStep { y5, err_norm, k }
+}
+
+/// Evaluate the dense-output interpolant of an accepted step at
+/// `x = (t − t_old)/h ∈ [0, 1]` (see the `P` coefficients above).
+fn dense_output<const N: usize>(
+    y_old: &[f64; N],
+    h: f64,
+    k: &[[f64; N]; 7],
+    x: f64,
+) -> [f64; N] {
+    let x2 = x * x;
+    let x3 = x2 * x;
+    let x4 = x3 * x;
+    let mut out = *y_old;
+    for n in 0..N {
+        let mut sum = 0.0;
+        for (k_s, p_s) in k.iter().zip(&P) {
+            sum += k_s[n] * (p_s[0] * x + p_s[1] * x2 + p_s[2] * x3 + p_s[3] * x4);
+        }
+        out[n] += h * sum;
+    }
+    out
 }
 
 /// Step-size factor for the error norm, scipy-style:
