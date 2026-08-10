@@ -2,9 +2,8 @@
 //!
 //! Equal masses `m₁ = m₂ = 1` and equal lengths `L₁ = L₂ = 1`; the state
 //! vector is `y = [θ₁, ω₁, θ₂, ω₂]` (angles in radians, angular velocities in
-//! rad/s), where `θ₁` and `θ₂` are the angles of the first and second rods
-//! measured from the downward vertical (both absolute, not relative to
-//! each other).
+//! rad/s), where `θ₁` and `θ₂` are absolute angles of the first and second
+//! rods measured from the downward vertical.
 
 /// Gravitational acceleration in m/s².
 pub const G: f64 = 9.81;

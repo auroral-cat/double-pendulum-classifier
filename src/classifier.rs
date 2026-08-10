@@ -14,14 +14,14 @@ use std::fmt;
 use crate::dynamics::{G, State, double_pendulum};
 use crate::integrator::{IntegratorError, integrate};
 
-/// Solver tolerances for the integrations below.
+/// Solver tolerances for the Lyapunov and Poincaré integrations.
 ///
 /// The two-trajectory Lyapunov estimate measures the separation `d ≈ δ₀` of
-/// two nearby trajectories, which is only meaningful when the integrator's
-/// own trajectory error is much smaller than `δ₀ = 1e-8`. At looser
+/// two nearby trajectories; the integrator's own trajectory error must be
+/// well below `δ₀ = 1e-8` for the estimate to be meaningful. At looser
 /// tolerances (`rtol = atol = 1e-9`) the separation sits at the edge of that
-/// regime and the estimate is biased high. With `1e-12` the deviation is
-/// resolved with a comfortable margin.
+/// regime and the estimate reads high. At `1e-12` the deviation is resolved
+/// with a comfortable margin.
 const RTOL: f64 = 1e-12;
 const ATOL: f64 = 1e-12;
 
@@ -42,15 +42,14 @@ impl Default for LyapunovParams {
     fn default() -> Self {
         Self {
             // The tail-difference estimator (see [`largest_lyapunov`]) has a
-            // noise floor that decays roughly like 1/√T, but not
-            // monotonically — it is a noisy quantity, not a smooth bound.
-            // Measured over a 64-point grid of low-energy regular starts, the
-            // worst residual λ is ≈ 0.012 at T = 400 and ≈ 0.004 at T = 800,
-            // against the 0.015 chaotic threshold. T = 400 classifies every
-            // start sampled correctly, but the margin is only ~1.3×; raise
-            // this to 800 if you need headroom, at 2× the runtime. Genuinely
-            // chaotic starts sit at λ ≈ 1.1 and are never close to the
-            // threshold.
+            // noise floor that decays roughly like 1/√T — an oscillatory
+            // quantity, not a smooth bound. Measured over a 64-point grid of
+            // low-energy regular starts, the worst residual λ is ≈ 0.012 at
+            // T = 400 and ≈ 0.004 at T = 800, against the 0.015 chaotic
+            // threshold. T = 400 classifies every start sampled correctly
+            // with a ~1.3× margin; raise this to 800 for more headroom at 2×
+            // the runtime. Genuinely chaotic starts sit at λ ≈ 1.1, far above
+            // the threshold.
             t: 400.0,
             dt: 0.02,
             δ0: 1e-8,
@@ -80,7 +79,8 @@ pub enum Classification {
     Chaotic,
     Periodic,
     Quasiperiodic,
-    /// Regular, but too few Poincaré crossings were collected in the horizon.
+    /// Regular, with too few Poincaré crossings collected to decide between
+    /// periodic and quasiperiodic.
     NeedsLongerIntegration,
 }
 
@@ -112,19 +112,18 @@ pub struct ClassificationResult {
 /// the separation small so that `λ₁ ≈ (1/t) Σ log(d/δ₀)` even when the
 /// trajectories would otherwise decorrelate completely.
 ///
-/// For a regular orbit the log-sum does not grow systematically — the
-/// tangent-space stretching averages out, but the sum still wanders, driven
-/// by step-sequence artefacts that do not average out at these horizons
-/// (measured over the demo start's checkpoints: ≈ 3.6 at t = 50, 5.2 at
-/// t = 100, 5.5 at t = 150, 6.5 at t = 350, 6.4 at t = 400 — a noisy walk,
-/// not a bounded constant). The plain average `log_sum / t` therefore decays
-/// like a noisy `const(t)/t` and cannot be told apart from a genuinely small
-/// growth rate: at a 100 s horizon the residual sits at `~1.5/100 = 0.015`,
-/// exactly the chaotic threshold, so every regular orbit read as chaotic.
-/// The estimate therefore measures the **growth** of the log-sum: only
-/// checkpoints in the second half of the run contribute (`λ = tail_sum /
-/// elapsed`), so a wandering-but-sublinear log-sum yields ≈ 0 regardless of
-/// its level while a chaotic one keeps its positive growth rate.
+/// For a regular orbit the log-sum wanders — tangent-space stretching
+/// averages out, but step-sequence artefacts drive a noisy walk familiar
+/// from Benettin estimates (measured over the demo start's checkpoints:
+/// ≈ 3.6 at t = 50, 5.2 at t = 100, 5.5 at t = 150, 6.5 at t = 350, 6.4 at
+/// t = 400). The plain average `log_sum / t` decays like a noisy
+/// `const(t)/t` and mimics a genuine growth rate: at a 100 s horizon the
+/// residual sits at `~1.5/100 = 0.015`, right at the chaotic threshold, so
+/// every regular orbit reads chaotic. The estimate therefore measures the
+/// **growth** of the log-sum: only checkpoints in the second half of the run
+/// contribute (`λ = tail_sum / elapsed`), so a wandering-but-sublinear
+/// log-sum yields ≈ 0 at any level while a chaotic one keeps its positive
+/// growth rate.
 ///
 /// # Errors
 ///
@@ -134,19 +133,15 @@ pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorE
     largest_lyapunov_with(y0, p, |y, t_eval| integrate(f, y, t_eval, RTOL, ATOL))
 }
 
-/// Same as [`largest_lyapunov`], but with the integrations delegated to the
-/// supplied closure so callers can swap in their own ODE engine. The
-/// benchmark uses this to run the *identical* algorithm on every backend
-/// instead of maintaining a drift-prone copy.
+/// Same as [`largest_lyapunov`], delegating the integrations to the supplied
+/// closure so callers can swap in their own ODE engine. The benchmark uses
+/// this to run the *identical* algorithm on every backend from a single
+/// implementation.
 ///
 /// The closure receives a state and a time grid and must return **one row per
 /// grid entry, in order** — the algorithm indexes `ref_sol[i]` and `seg[1]`
 /// directly. A closure that returns fewer rows than grid entries will panic
-/// (index out of bounds) rather than report an error.
-/// The closure receives a state and a time grid and must return **one row per
-/// grid entry, in order** — the algorithm indexes `ref_sol[i]` and `seg[1]`
-/// directly. A closure that returns fewer rows than grid entries will panic
-/// (index out of bounds) rather than report an error.
+/// (index out of bounds).
 ///
 /// # Errors
 ///
@@ -225,12 +220,12 @@ where
 /// Poincaré section: record `(θ₁, ω₁)` each time `θ₂` crosses 0 upward.
 ///
 /// Crossings are detected on the sampled grid and refined with linear
-/// interpolation. Both angles are wrapped
-/// into `(−π, π]` first: the ODE integrates `θ` as an unbounded real, but the
-/// section condition is a statement about the physical configuration, which
-/// is 2π-periodic. Without the wrap, an orbit whose rods circulate would
-/// almost never be seen to cross `θ₂ = 0` again, and the recorded `θ₁` would
-/// drift by 2π every revolution.
+/// interpolation. Both angles are wrapped into `(−π, π]` first: the ODE
+/// integrates `θ` as an unbounded real, but the section condition is
+/// 2π-periodic — it describes the physical configuration, so every
+/// crossing at `θ₂ ≡ 0 (mod 2π)` counts. With the wrap, a circulating rod
+/// produces crossings at every revolution; the recorded `θ₁` stays in
+/// `(−π, π]`.
 ///
 /// # Errors
 ///
@@ -245,9 +240,9 @@ pub fn poincare_section(y0: State, p: PoincareParams) -> Result<Vec<[f64; 2]>, I
 /// Extract the Poincaré section from an already-integrated solution.
 ///
 /// Separated from [`poincare_section`] so callers with their own ODE engine
-/// (the benchmark) run the identical crossing logic instead of a copy. Both
-/// angles are wrapped into `(−π, π]` and the sample where the wrap jumps
-/// across the branch cut is skipped.
+/// (the benchmark) run the identical crossing logic from a single
+/// implementation. Both angles are wrapped into `(−π, π]`; the sample where
+/// the wrap jumps across the branch cut is skipped.
 #[must_use]
 pub fn section_from_solution(sol: &[[f64; 4]]) -> Vec<[f64; 2]> {
     let mut points = Vec::new();
@@ -307,24 +302,23 @@ pub fn unique_rounded(points: &[[f64; 2]], decimals: i32) -> usize {
 /// section point from the origin (`θ₁ = ω₁ = 0`, the stable equilibrium).
 ///
 /// Scale-free: multiplying the whole section by a constant scales both the
-/// bucket size and the section, so the count does not change. The reference
+/// bucket size and the section, so the count stays constant. The reference
 /// scale is the orbit's own size, *not* the section's span: a thin invariant
 /// curve near a periodic orbit and a fat one both trace the same number of
-/// span-sized cells, so span-bucketing cannot tell them apart, while relative
-/// to the orbit size the thin curve collapses to a handful of cells.
+/// span-sized cells, so span-bucketing conflates them, while bucketing
+/// relative to the orbit size collapses the thin curve to a handful of cells.
 ///
 /// # Resolution limit
 ///
-/// Bucketing at `max_radius / n_buckets` cannot resolve an invariant curve
-/// thinner than one bucket — at the shipped `n_buckets = 200` that is 1/200
-/// of the orbit's own radius. Quasiperiodic orbits within roughly
-/// `|ratio − √2| < 0.012` of a linear normal mode have curves below that
-/// width and are reported as periodic (measured boundary: ratio 1.405,
-/// Δ = 0.0092, reads periodic; ratio 1.400, Δ = 0.0142, resolves). They are
-/// *nearly* periodic, so the answer is arguably right; raise `n_buckets` if
-/// the distinction matters for your use, at the cost of splitting a genuinely
-/// periodic section into several cells once the bucket approaches integrator
-/// noise (~1e-11 relative).
+/// Curves thinner than one bucket (`max_radius / n_buckets`) read as a single
+/// cell. At the shipped `n_buckets = 200` that is 1/200 of the orbit's own
+/// radius. Quasiperiodic orbits within roughly `|ratio − √2| < 0.012` of a
+/// linear normal mode have curves below that width and are reported as
+/// periodic (measured boundary: ratio 1.405, Δ = 0.0092, reads periodic;
+/// ratio 1.400, Δ = 0.0142, resolves). They are *nearly* periodic, so the
+/// answer is reasonable; raise `n_buckets` for finer resolution, at the cost
+/// of splitting a genuinely periodic section into several cells once the
+/// bucket approaches integrator noise (~1e-11 relative).
 #[must_use]
 pub fn unique_scaled(points: &[[f64; 2]], n_buckets: f64) -> usize {
     if points.is_empty() {
@@ -342,14 +336,14 @@ pub fn unique_scaled(points: &[[f64; 2]], n_buckets: f64) -> usize {
         span = span.max(mx - mn);
     }
     // Collapse sections whose extent is below ~1e-9 of their own radius to a
-    // single point. The threshold is relative to the orbit's size, so a tiny
-    // quasiperiodic curve — which scales down with its amplitude — is never
-    // mistaken for a point the way an absolute cutoff would: the thinnest
-    // resolvable curve is ~0.01 of the orbit's radius, seven orders above
-    // this. Genuinely periodic orbits are collapsed by the bucketing itself
-    // (their extent is ~1e-5 of the radius, far below the 1/200 cell); this
-    // guard only handles the machine-precision case where the section is a
-    // point to ~9 decimal places of its own size.
+    // single point. The threshold is relative to the orbit's size: a tiny
+    // quasiperiodic curve — which scales with its amplitude — stays well
+    // above this cutoff (the thinnest resolvable curve is ~0.01 of the
+    // orbit's radius, seven orders higher). Genuinely periodic orbits are
+    // collapsed by the bucketing itself (their extent is ~1e-5 of the radius,
+    // far below the 1/200 cell); this guard handles the remaining
+    // machine-precision case where the section is a point to ~9 decimal
+    // places of its own size.
     if span < 1e-9 * max_radius {
         return 1;
     }
@@ -420,22 +414,23 @@ pub fn classify(y0: State, λ_threshold: f64) -> Result<ClassificationResult, In
 ///
 /// `renorm / dt` is mathematically an integer for sensible parameters, but
 /// the floating-point quotient can land just below it (e.g. `0.3 / 0.1 =
-/// 2.9999...`), so a plain `floor` would silently drop a whole step. Round to
-/// the nearest integer instead, then clamp to at least one step.
+/// 2.9999...`), so a plain `floor` silently drops a whole step. Round to the
+/// nearest integer instead, then clamp to at least one step.
 #[must_use]
 pub fn renorm_stride(renorm: f64, dt: f64) -> usize {
-    // The quotient is non-negative for the positive parameters the classifier
-    // uses, so the conversion cannot truncate or lose a sign.
+    // The quotient is non-negative for the parameters the classifier uses;
+    // `round` makes the value integral, so the cast to `usize` is exact.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     ((renorm / dt).round() as usize).max(1)
 }
 
 /// Evenly spaced values in `[start, stop)` with spacing `step`.
 //
-// Casts: `ceil` of a non-negative quotient (`start ≤ stop`, `step > 0`) and
-// grid indices, both additionally capped by `take_while`, so the conversions
-// cannot truncate, lose a sign, or (below 2^53 samples — 200 million years at
-// the classifier's 0.02 s spacing) lose precision for the grids used here.
+// Casts: `ceil` of a positive quotient (`start ≤ stop`, `step > 0`) and grid
+// indices, both additionally capped by `take_while`, so the conversions
+// preserve the value exactly at the f64 → usize boundary, and (below 2^53
+// samples — 200 million years at the classifier's 0.02 s spacing) the f64
+// grid indices are exact.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,

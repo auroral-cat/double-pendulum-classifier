@@ -1,8 +1,8 @@
 //! Backend comparison benchmark: hand-rolled RK45 vs `ode_solvers`,
 //! `diffsol` and `peroxide`.
 //!
-//! (Whitelist for the deliberately short names here — see the same
-//! crate-root allow in `src/lib.rs`.)
+//! (The `similar_names`/`many_single_char_names` allowance is also at the
+//! crate root in `src/lib.rs`.)
 #![allow(clippy::similar_names, clippy::many_single_char_names)]
 //! Every backend runs the *same* workloads — a 400 s reference integration,
 //! the full Benettin Lyapunov estimate (reference + 199 renormalised segment
@@ -13,9 +13,10 @@
 //!
 //! A verification table (λ values, crossing counts) is printed before the
 //! timing runs so that the results can be checked for scientific equivalence.
-//! It is *not* bit-level agreement: the `ode_solvers` backend snaps to the
-//! nearest stored dense-output sample via `nearest_index`, so two backends
-//! may legitimately differ in the last few digits of `y_end`.
+//! Agreement is at the scientific level, not bit-level: the `ode_solvers`
+//! backend snaps to the nearest stored dense-output sample via
+//! `nearest_index`, so two backends may legitimately differ in the last few
+//! digits of `y_end`.
 //!
 //! [`largest_lyapunov_with`]: double_pendulum_classifier::largest_lyapunov_with
 
@@ -39,11 +40,11 @@ const CASE2: [f64; 4] = [2.4, 0.0, 0.0, 0.0];
 const POINCARE_Y0: [f64; 4] = [1.0, 0.0, 0.5, 0.0];
 /// Rod 2 spins over the top: raw θ₂ runs away monotonically, so a crossing
 /// test on unwrapped θ₂ reports ~5 points while the wrapped library logic
-/// reports dozens. Keeps the verification table honest about the wrap. The
-/// start is deliberately *not* a scientific-equivalence check: it sits above
-/// the separatrix (energy +2.6, λ ≈ 1.0) and is genuinely chaotic, so its
-/// crossing counts legitimately vary by ~10% between backends — the row
-/// guards the wrap (5 vs dozens), not bit-level agreement.
+/// reports dozens. Keeps the verification table honest about the wrap. This
+/// start sits above the separatrix (energy +2.6, λ ≈ 1.0) and is genuinely
+/// chaotic, so crossing counts legitimately vary by ~10% between backends;
+/// the row guards the wrap (5 vs dozens) rather than checking bit-level
+/// agreement.
 const CIRCULATING_Y0: [f64; 4] = [0.0, 0.0, 0.0, 8.0];
 
 /// Right-hand side of the double pendulum on a plain `[f64; 4]`, shared by all

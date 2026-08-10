@@ -1,11 +1,11 @@
 //! A self-contained Dormand–Prince 5(4) (RK45) adaptive integrator.
 //!
 //! Per-component `rtol`/`atol` scaling with an RMS error norm, free adaptive
-//! steps chosen solely by the error controller, and dense output: the
-//! requested output times are read from the Dormand–Prince interpolant, so
-//! the results are independent of the output grid. Each step is bounded by
-//! the end of the requested span; it is *not* clipped at the individual
-//! output times, which would pin the step size to the grid spacing.
+//! steps chosen solely by the error controller, and dense output: requested
+//! output times are read from the Dormand–Prince interpolant, so the results
+//! are independent of the output grid. Each step is bounded by the end of the
+//! requested span; individual output times are reached via the interpolant,
+//! keeping the step sequence decoupled from the grid spacing.
 
 use std::error::Error;
 use std::fmt;
@@ -133,7 +133,7 @@ pub enum IntegratorError {
     /// `rtol` and `atol` must both be strictly positive.
     InvalidTolerance { rtol: f64, atol: f64 },
     /// The adaptive step size collapsed below the ulp of `t` at time `t`
-    /// (the right-hand side is probably stiff or singular).
+    /// (the right-hand side is stiff, singular, or has a pole near `t`).
     StepSizeUnderflow { t: f64 },
 }
 
@@ -214,17 +214,14 @@ where
     // The step sequence is independent of the output grid: each accepted step
     // advances by the controller's own `h`, and the requested output points
     // are read from the dense-output interpolant. Clipping the step at every
-    // `t_eval` entry (as this module once did) pins the step size to the grid
-    // spacing and makes the step sequence a function of the grid, which
-    // injects spurious separation into the two-trajectory Lyapunov
-    // measurement: the same trajectory integrated over a fine and a coarse
-    // grid took different step sequences and diverged by ~1e-10 at t = 50 s.
+    // `t_eval` entry pins the step size to the grid spacing and makes the
+    // step sequence a function of the grid, injecting spurious separation
+    // into the two-trajectory Lyapunov measurement.
     loop {
-        // Bound the step by the end of the requested span. Clipping here does
-        // *not* reintroduce the output-grid dependence that dense output
-        // removed (issue #7):
-        // only the final step is affected, and `t_end` is part of the
-        // caller's request, not of how densely the span is sampled.
+        // Bound the step by the end of the requested span. Clipping here
+        // affects only the final step; `t_end` is part of the caller's
+        // request, not of how densely the span is sampled, so the output-grid
+        // independence holds.
         let h_step = h.min(t_end - t);
         // The step must be large enough to actually advance `t`; otherwise
         // `t += h_step` is a no-op and the loop would livelock (accepted steps
@@ -503,10 +500,9 @@ mod tests {
 
     #[test]
     fn the_step_sequence_stays_independent_of_the_output_grid() {
-        // Issue #7: the same trajectory on a fine and a coarse grid must agree
-        // exactly at the shared times. Clipping at `t_end` (issue #15) must not
-        // break this. The coarse grid is a *subset* of the fine one, so the
-        // shared times are bit-identical — comparing two independently
+        // The same trajectory on a fine and a coarse grid must agree exactly
+        // at the shared times. The coarse grid is a *subset* of the fine one,
+        // so the shared times are bit-identical — comparing two independently
         // computed grids (e.g. `i * 0.02` vs `i * 0.2`) would inject a 1-ulp
         // difference in the evaluation time itself (round-to-even tie-break at
         // 0.6, 1.2) and fail on a pure representation artifact.
@@ -516,8 +512,8 @@ mod tests {
         let sol_fine = integrate(f, [1.0], &fine, 1e-12, 1e-12).unwrap();
         let sol_coarse = integrate(f, [1.0], &coarse, 1e-12, 1e-12).unwrap();
         for k in 1..coarse.len() {
-            // Bit-identicality is the property under test (issues #7, #15):
-            // any 1-ulp divergence is a step-sequence regression.
+            // Bit-identicality is the property under test: any 1-ulp
+            // divergence is a step-sequence regression.
             #[allow(clippy::float_cmp)]
             {
                 assert_eq!(
