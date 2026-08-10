@@ -110,10 +110,7 @@ pub struct ClassificationResult {
 pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorError> {
     let f = |t: f64, y: &[f64; 4]| double_pendulum(t, State::from_array(*y), G).to_array();
     let t_eval = arange(0.0, p.t, p.dt);
-    // `renorm` and `dt` are positive, so the quotient is non-negative and the
-    // conversion cannot truncate or lose a sign.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let n_renorm = ((p.renorm / p.dt).floor() as usize).max(1);
+    let n_renorm = renorm_stride(p.renorm, p.dt);
 
     // Reference trajectory sampled on the full grid.
     let ref_sol = integrate(f, y0.to_array(), &t_eval, RTOL, ATOL)?;
@@ -234,6 +231,19 @@ pub fn classify(y0: State, λ_threshold: f64) -> Result<ClassificationResult, In
     })
 }
 
+/// Number of `dt`-sized steps per renormalisation interval.
+///
+/// `renorm / dt` is mathematically an integer for sensible parameters, but
+/// the floating-point quotient can land just below it (e.g. `0.3 / 0.1 =
+/// 2.9999...`), so a plain `floor` would silently drop a whole step. Round to
+/// the nearest integer instead, then clamp to at least one step.
+pub fn renorm_stride(renorm: f64, dt: f64) -> usize {
+    // The quotient is non-negative for the positive parameters the classifier
+    // uses, so the conversion cannot truncate or lose a sign.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    ((renorm / dt).round() as usize).max(1)
+}
+
 /// `np.arange(start, stop, step)` — evenly spaced values in `[start, stop)`.
 fn arange(start: f64, stop: f64, step: f64) -> Vec<f64> {
     // `ceil` of a non-negative quotient (`start ≤ stop`, `step > 0`); the
@@ -258,6 +268,15 @@ mod tests {
         let t = arange(0.0, 100.0, 0.02);
         assert!(*t.last().unwrap() < 100.0);
         assert!(t.windows(2).all(|w| w[1] > w[0]));
+    }
+
+    #[test]
+    fn renorm_stride_is_not_truncated_by_float_division() {
+        assert_eq!(renorm_stride(2.0, 0.02), 100);
+        assert_eq!(renorm_stride(0.3, 0.1), 3); // floor() would give 2 here
+        assert_eq!(renorm_stride(1.0, 0.02), 50);
+        assert_eq!(renorm_stride(0.7, 0.1), 7);
+        assert_eq!(renorm_stride(0.01, 1.0), 1); // clamped to at least 1
     }
 
     #[test]
