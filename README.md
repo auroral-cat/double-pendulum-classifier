@@ -25,7 +25,7 @@ angular velocities `ω1`, `ω2` — and runs three steps:
 
 1. **Simulate the motion.** A built-in Dormand–Prince (RK45) integrator steps
    the equations of motion forward in time, with per-component error control
-   and the same accuracy guarantees you would get from a scientific library.
+   and accuracy guarantees you would expect from a scientific library.
 
 2. **Measure the chaos with a Lyapunov exponent.** Two nearly identical
    trajectories are followed side by side. If they drift apart exponentially,
@@ -38,26 +38,26 @@ angular velocities `ω1`, `ω2` — and runs three steps:
    (each time `θ2` passes through 0 going upward). A finite set of crossing
    points means periodic; points that fill in a curve mean quasiperiodic.
 
-The classification rule is simple: `λ` above a threshold (default 0.015)
-means chaotic; otherwise the Poincaré section decides.
+The classification rule is: `λ` above a threshold (default 0.015) means chaotic; 
+otherwise the Poincaré section decides whether it's quasiperiodic or periodic.
 
 ## Getting started
 
-You need Rust 2024 edition. This crate uses minimal dependencies for error reporting;
+This requires Rust 2024 edition. The crate uses minimal dependencies for error reporting; 
 the solver itself is pure standard library.
 
 ```bash
-# Bring up the help menu
-cargo run --release -- -help
-
-# Run the two built-in demo cases
-cargo run --release -- -demo
-
 # Classify your own starting state: θ1 ω1 θ2 ω2
 cargo run --release -- 0.05 0.0 0.0 0.0
 
 # You can also adjust the chaotic threshold: θ1 ω1 θ2 ω2 λ_threshold
 cargo run --release -- 1.0 0.0 0.5 0.0 0.1
+
+# Run the two built-in demo cases
+cargo run --release -- -demo
+
+# Bring up the help menu
+cargo run --release -- -help
 
 # Run the test suite
 cargo test
@@ -78,14 +78,12 @@ case 2 — high-energy start (strongly chaotic):
 - `src/dynamics.rs` — the equations of motion and the energy function
 - `src/integrator.rs` — the adaptive RK45 integrator
 - `src/classifier.rs` — Lyapunov exponent, Poincaré section, classification
-- `src/main.rs` — the command-line front end
+- `src/main.rs` — the CLI front end
 - `tests/classification.rs` — end-to-end tests
 - `benches/compare.rs` — a criterion benchmark comparing this integrator with
   popular ODE crates
 
 ## Performance
-
-The two demo cases finish in about a tenth of a second.
 
 A benchmark against established ODE crates (`ode_solvers`, `diffsol`,
 `peroxide`) is included. Against the two adaptive solvers — `ode_solvers`'
