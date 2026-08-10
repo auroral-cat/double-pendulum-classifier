@@ -65,6 +65,12 @@ const B5: [f64; 7] = [
 /// ```text
 /// y(t_old + x·h) = y_old + h·Σ_s k_s·(P[s][0]·x + P[s][1]·x² + P[s][2]·x³ + P[s][3]·x⁴)
 /// ```
+///
+/// Literature constants (Hairer et al., *Solving Ordinary Differential
+/// Equations I*, Table 5.3) pasted verbatim: the raw integer form is the
+/// canonical representation, so the literals are intentionally left without
+/// digit separators.
+#[allow(clippy::unreadable_literal)]
 const P: [[f64; 4]; 7] = [
     [
         1.0,
@@ -106,7 +112,9 @@ const P: [[f64; 4]; 7] = [
 ];
 
 /// Fourth-order (embedded) weights `b*_s`; the local error estimate is
-/// `h · Σ_s (b_s − b*_s) k_s`.
+/// `h · Σ_s (b_s − b*_s) k_s`. Same literature provenance as `P` — the raw
+/// integer form is the canonical representation.
+#[allow(clippy::unreadable_literal)]
 const B4: [f64; 7] = [
     5179.0 / 57600.0,
     0.0,
@@ -319,6 +327,9 @@ where
             e * e
         })
         .sum::<f64>();
+    // `N` is a const-generic state dimension, always 4 in this codebase;
+    // a dimension needing >= 2^53 components would lose precision.
+    #[allow(clippy::cast_precision_loss)]
     let err_norm = (err_sq / N as f64).sqrt();
 
     DpStep { y5, err_norm, k }
@@ -382,7 +393,10 @@ where
         sum_y2 = y_scaled.mul_add(y_scaled, sum_y2);
         sum_f2 = f_scaled.mul_add(f_scaled, sum_f2);
     }
+    // Same reasoning as in `rk45_step`: `N` is a small const dimension.
+    #[allow(clippy::cast_precision_loss)]
     let d0 = (sum_y2 / N as f64).sqrt();
+    #[allow(clippy::cast_precision_loss)]
     let d1 = (sum_f2 / N as f64).sqrt();
     let h = if d0 < 1e-5 || d1 < 1e-5 {
         1e-6
@@ -497,7 +511,7 @@ mod tests {
         // difference in the evaluation time itself (round-to-even tie-break at
         // 0.6, 1.2) and fail on a pure representation artifact.
         let f = |_t: f64, y: &[f64; 1]| [y[0]];
-        let fine: Vec<f64> = (0..=100).map(|i| i as f64 * 0.02).collect();
+        let fine: Vec<f64> = (0..=100).map(|i| f64::from(i) * 0.02).collect();
         let coarse: Vec<f64> = fine.iter().step_by(10).copied().collect();
         let sol_fine = integrate(f, [1.0], &fine, 1e-12, 1e-12).unwrap();
         let sol_coarse = integrate(f, [1.0], &coarse, 1e-12, 1e-12).unwrap();

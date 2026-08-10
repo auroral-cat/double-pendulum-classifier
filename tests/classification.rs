@@ -75,20 +75,20 @@ fn circulating_rod_two_still_crosses_the_section() {
     // Rod 2 spins over the top; its raw θ₂ runs away monotonically, but the
     // physical configuration crosses θ₂ ≡ 0 (mod 2π) dozens of times. Before
     // the wrap this returned 5 points.
-    let pts = poincare_section(State::new(0.0, 0.0, 0.0, 8.0), Default::default()).unwrap();
+    let pts = poincare_section(State::new(0.0, 0.0, 0.0, 8.0), PoincareParams::default()).unwrap();
     assert!(pts.len() >= 50, "got {} points", pts.len());
 }
 
 #[test]
 fn both_rods_circulating_still_crosses_the_section() {
     // Before the wrap this returned 6 points.
-    let pts = poincare_section(State::new(0.0, 3.0, 0.0, 3.0), Default::default()).unwrap();
+    let pts = poincare_section(State::new(0.0, 3.0, 0.0, 3.0), PoincareParams::default()).unwrap();
     assert!(pts.len() >= 50, "got {} points", pts.len());
 }
 
 #[test]
 fn section_angles_are_wrapped_into_minus_pi_pi() {
-    let pts = poincare_section(State::new(0.0, 3.0, 0.0, 3.0), Default::default()).unwrap();
+    let pts = poincare_section(State::new(0.0, 3.0, 0.0, 3.0), PoincareParams::default()).unwrap();
     assert!(
         pts.iter()
             .all(|[θ1, _]| *θ1 > -std::f64::consts::PI && *θ1 <= std::f64::consts::PI)
@@ -99,7 +99,7 @@ fn section_angles_are_wrapped_into_minus_pi_pi() {
 fn wrapping_does_not_change_a_non_circulating_section() {
     // This orbit never circulates, so wrapping must not change its section
     // (73 points, as before the fix).
-    let pts = poincare_section(State::new(1.0, 0.0, 0.5, 0.0), Default::default()).unwrap();
+    let pts = poincare_section(State::new(1.0, 0.0, 0.5, 0.0), PoincareParams::default()).unwrap();
     assert!((73..=79).contains(&pts.len()), "got {} points", pts.len());
 }
 
@@ -184,7 +184,7 @@ fn the_periodic_resolution_boundary_is_where_we_think_it_is() {
 #[test]
 fn energy_is_conserved_over_the_integration() {
     let y0 = State::new(0.2, 0.0, -0.15, 0.0);
-    let t_eval: Vec<f64> = (0..=200).map(|i| i as f64 * 0.1).collect(); // 0 s → 20 s
+    let t_eval: Vec<f64> = (0..=200).map(|i| f64::from(i) * 0.1).collect(); // 0 s → 20 s
     let f = |t: f64, y: &[f64; 4]| double_pendulum(t, State::from_array(*y), G).to_array();
     let sol = integrate(f, y0.to_array(), &t_eval, 1e-9, 1e-9).unwrap();
 

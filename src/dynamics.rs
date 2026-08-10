@@ -19,14 +19,17 @@ pub struct State {
 }
 
 impl State {
+    #[must_use]
     pub const fn new(θ1: f64, ω1: f64, θ2: f64, ω2: f64) -> Self {
         Self { θ1, ω1, θ2, ω2 }
     }
 
+    #[must_use]
     pub const fn to_array(self) -> [f64; 4] {
         [self.θ1, self.ω1, self.θ2, self.ω2]
     }
 
+    #[must_use]
     pub const fn from_array(y: [f64; 4]) -> Self {
         Self {
             θ1: y[0],
@@ -44,6 +47,7 @@ impl State {
 /// chain, which would obscure the mathematics without changing the result to
 /// leading order.
 #[allow(clippy::suboptimal_flops)]
+#[must_use]
 pub fn double_pendulum(_t: f64, y: State, g: f64) -> State {
     let State { θ1, ω1, θ2, ω2 } = y;
     let c = (θ1 - θ2).cos();
@@ -66,6 +70,7 @@ pub fn double_pendulum(_t: f64, y: State, g: f64) -> State {
 /// Useful as a conservation check for the integrator. Kept in textbook form
 /// for the same readability reason as [`double_pendulum`].
 #[allow(clippy::suboptimal_flops)]
+#[must_use]
 pub fn energy(y: State, g: f64) -> f64 {
     let State { θ1, ω1, θ2, ω2 } = y;
     let kinetic = ω1 * ω1 + 0.5 * ω2 * ω2 + ω1 * ω2 * (θ1 - θ2).cos();

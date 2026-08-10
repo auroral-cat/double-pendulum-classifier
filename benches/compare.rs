@@ -61,9 +61,14 @@ fn pendulum_rhs(y: [f64; 4]) -> [f64; 4] {
 }
 
 /// Evenly spaced values in `[start, stop)` with spacing `step`.
+//
+// See `classifier::even_grid` for why the casts below are safe.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 fn even_grid(start: f64, stop: f64, step: f64) -> Vec<f64> {
-    // See `classifier::even_grid` for why this conversion is safe.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let n = ((stop - start) / step).ceil() as usize;
     (0..n)
         .map(|i| (i as f64).mul_add(step, start))
@@ -333,7 +338,7 @@ fn backends() -> Vec<Box<dyn Backend>> {
 
 /// Check that every backend computes the same physics before timing it.
 fn verify() {
-    println!("verification (rtol = atol = {:e}):", RTOL);
+    println!("verification (rtol = atol = {RTOL:e}):");
     println!(
         "{:<20} {:>10} {:>10} {:>14} {:>14} {:>12}",
         "backend", "λ case1", "λ case2", "poincaré pts", "circulating", "y_end[0]"
@@ -382,7 +387,7 @@ fn bench_integrate(c: &mut Criterion) {
     let mut group = c.benchmark_group("integrate_100s");
     for b in backends() {
         group.bench_function(BenchmarkId::new("integrate", b.name()), |bb| {
-            bb.iter(|| black_box(integrate_workload(b.as_ref())))
+            bb.iter(|| black_box(integrate_workload(b.as_ref())));
         });
     }
     group.finish();
@@ -392,7 +397,7 @@ fn bench_lyapunov(c: &mut Criterion) {
     let mut group = c.benchmark_group("largest_lyapunov");
     for b in backends() {
         group.bench_function(BenchmarkId::new("lyapunov", b.name()), |bb| {
-            bb.iter(|| black_box(lyapunov_workload(b.as_ref(), CASE1)))
+            bb.iter(|| black_box(lyapunov_workload(b.as_ref(), CASE1)));
         });
     }
     group.finish();
@@ -402,7 +407,7 @@ fn bench_poincare(c: &mut Criterion) {
     let mut group = c.benchmark_group("poincare_section");
     for b in backends() {
         group.bench_function(BenchmarkId::new("poincare", b.name()), |bb| {
-            bb.iter(|| black_box(poincare_workload(b.as_ref(), POINCARE_Y0)))
+            bb.iter(|| black_box(poincare_workload(b.as_ref(), POINCARE_Y0)));
         });
     }
     group.finish();

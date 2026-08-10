@@ -143,6 +143,15 @@ pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorE
 /// grid entry, in order** — the algorithm indexes `ref_sol[i]` and `seg[1]`
 /// directly. A closure that returns fewer rows than grid entries will panic
 /// (index out of bounds) rather than report an error.
+/// The closure receives a state and a time grid and must return **one row per
+/// grid entry, in order** — the algorithm indexes `ref_sol[i]` and `seg[1]`
+/// directly. A closure that returns fewer rows than grid entries will panic
+/// (index out of bounds) rather than report an error.
+///
+/// # Errors
+///
+/// Returns the error from the supplied `integrate_fn` if any integration
+/// fails.
 pub fn largest_lyapunov_with<I, E>(y0: State, p: LyapunovParams, integrate_fn: I) -> Result<f64, E>
 where
     I: Fn([f64; 4], &[f64]) -> Result<Vec<[f64; 4]>, E>,
@@ -239,6 +248,7 @@ pub fn poincare_section(y0: State, p: PoincareParams) -> Result<Vec<[f64; 2]>, I
 /// (the benchmark) run the identical crossing logic instead of a copy. Both
 /// angles are wrapped into `(−π, π]` and the sample where the wrap jumps
 /// across the branch cut is skipped.
+#[must_use]
 pub fn section_from_solution(sol: &[[f64; 4]]) -> Vec<[f64; 2]> {
     let mut points = Vec::new();
     for pair in sol.windows(2) {
@@ -278,6 +288,7 @@ fn wrap_pi(θ: f64) -> f64 {
 /// Kept for display purposes ([`crate::main`] uses it when printing a
 /// section); the classification itself uses [`unique_scaled`], which is
 /// scale-free.
+#[must_use]
 pub fn unique_rounded(points: &[[f64; 2]], decimals: i32) -> usize {
     let factor = 10f64.powi(decimals);
     let mut seen = HashSet::new();
@@ -314,6 +325,7 @@ pub fn unique_rounded(points: &[[f64; 2]], decimals: i32) -> usize {
 /// the distinction matters for your use, at the cost of splitting a genuinely
 /// periodic section into several cells once the bucket approaches integrator
 /// noise (~1e-11 relative).
+#[must_use]
 pub fn unique_scaled(points: &[[f64; 2]], n_buckets: f64) -> usize {
     if points.is_empty() {
         return 0;
@@ -410,6 +422,7 @@ pub fn classify(y0: State, λ_threshold: f64) -> Result<ClassificationResult, In
 /// the floating-point quotient can land just below it (e.g. `0.3 / 0.1 =
 /// 2.9999...`), so a plain `floor` would silently drop a whole step. Round to
 /// the nearest integer instead, then clamp to at least one step.
+#[must_use]
 pub fn renorm_stride(renorm: f64, dt: f64) -> usize {
     // The quotient is non-negative for the positive parameters the classifier
     // uses, so the conversion cannot truncate or lose a sign.
@@ -418,11 +431,17 @@ pub fn renorm_stride(renorm: f64, dt: f64) -> usize {
 }
 
 /// Evenly spaced values in `[start, stop)` with spacing `step`.
+//
+// Casts: `ceil` of a non-negative quotient (`start ≤ stop`, `step > 0`) and
+// grid indices, both additionally capped by `take_while`, so the conversions
+// cannot truncate, lose a sign, or (below 2^53 samples — 200 million years at
+// the classifier's 0.02 s spacing) lose precision for the grids used here.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 fn even_grid(start: f64, stop: f64, step: f64) -> Vec<f64> {
-    // `ceil` of a non-negative quotient (`start ≤ stop`, `step > 0`); the
-    // grid is additionally capped by `take_while`, so the conversion cannot
-    // truncate or lose a sign for the grids used here.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let n = ((stop - start) / step).ceil() as usize;
     (0..n)
         .map(|i| (i as f64).mul_add(step, start))
