@@ -118,3 +118,6 @@ cargo bench --bench compare
   orbits with `λ` very close to it are borderline by construction. If a
   result seems surprising, try a longer integration or a different starting
   state.
+
+## Contributing
+Open an issue or submit a PR; though this is a personal project, conversation is welcome!
