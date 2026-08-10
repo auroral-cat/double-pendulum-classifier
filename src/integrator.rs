@@ -123,6 +123,10 @@ where
 
     let mut y = y0;
     let mut h = select_initial_step(&f, t_eval[0], &y0, rtol, atol);
+    // Dormand–Prince is a FSAL (first-same-as-last) pair: the final stage
+    // `k₇ = f(t + h, y₅)` of an accepted step is exactly the first stage of
+    // the next step, so it only has to be evaluated once per step.
+    let mut k0 = None;
 
     for interval in t_eval.windows(2) {
         let (ta, tb) = (interval[0], interval[1]);
@@ -132,11 +136,15 @@ where
             if h_step < f64::MIN_POSITIVE {
                 return Err(IntegratorError::StepSizeUnderflow { t });
             }
-            let (y_new, err_norm) = rk45_step(&f, t, &y, h_step, rtol, atol);
+            let (y_new, err_norm, k7) = rk45_step(&f, t, &y, h_step, rtol, atol, k0);
             h = step_factor(err_norm) * h_step;
             if err_norm <= 1.0 {
                 t += h_step;
                 y = y_new;
+                // `k₇ = f(t + h, y₅)` is `f` at the new step origin; reuse it
+                // as the next step's first stage. On rejection the step origin
+                // is unchanged, so the previous `k0` stays valid.
+                k0 = Some(k7);
             }
         }
         ys.push(y);
@@ -145,8 +153,12 @@ where
     Ok(ys)
 }
 
-/// One Dormand–Prince step of size `h`: returns the 5th-order update and the
-/// RMS error norm with per-component scaling `atol + rtol · max(|y|, |y₅|)`.
+/// One Dormand–Prince step of size `h`: returns the 5th-order update, the
+/// RMS error norm with per-component scaling `atol + rtol · max(|y|, |y₅|)`,
+/// and the final FSAL stage `k₇ = f(t + h, y₅)`.
+///
+/// `k0` is the first stage `f(t, y)`, usually reused from the previous
+/// accepted step (see [`integrate`]); pass `None` to evaluate it fresh.
 fn rk45_step<const N: usize, F>(
     f: &F,
     t: f64,
@@ -154,12 +166,13 @@ fn rk45_step<const N: usize, F>(
     h: f64,
     rtol: f64,
     atol: f64,
-) -> ([f64; N], f64)
+    k0: Option<[f64; N]>,
+) -> ([f64; N], f64, [f64; N])
 where
     F: Fn(f64, &[f64; N]) -> [f64; N],
 {
     let mut k = [[0.0; N]; 7];
-    k[0] = f(t, y);
+    k[0] = k0.unwrap_or_else(|| f(t, y));
 
     for (s, c_s) in C.iter().enumerate().skip(1) {
         let mut stage = *y;
@@ -192,7 +205,7 @@ where
         .sum::<f64>();
     let err_norm = (err_sq / N as f64).sqrt();
 
-    (y5, err_norm)
+    (y5, err_norm, k[6])
 }
 
 /// Step-size factor for the error norm, scipy-style:
