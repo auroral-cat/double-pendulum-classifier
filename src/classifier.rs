@@ -295,12 +295,13 @@ pub fn unique_rounded(points: &[[f64; 2]], decimals: i32) -> usize {
 /// Bucketing at `max_radius / n_buckets` cannot resolve an invariant curve
 /// thinner than one bucket — at the shipped `n_buckets = 200` that is 1/200
 /// of the orbit's own radius. Quasiperiodic orbits within roughly
-/// `|ratio − √2| < 0.005` of a linear normal mode have curves below that
-/// width and are reported as periodic. They are *nearly* periodic, so the
-/// answer is arguably right; raise `n_buckets` if the distinction matters for
-/// your use, at the cost of splitting a genuinely periodic section into
-/// several cells once the bucket approaches integrator noise (~1e-11
-/// relative).
+/// `|ratio − √2| < 0.012` of a linear normal mode have curves below that
+/// width and are reported as periodic (measured boundary: ratio 1.405,
+/// Δ = 0.0092, reads periodic; ratio 1.400, Δ = 0.0142, resolves). They are
+/// *nearly* periodic, so the answer is arguably right; raise `n_buckets` if
+/// the distinction matters for your use, at the cost of splitting a genuinely
+/// periodic section into several cells once the bucket approaches integrator
+/// noise (~1e-11 relative).
 pub fn unique_scaled(points: &[[f64; 2]], n_buckets: f64) -> usize {
     if points.is_empty() {
         return 0;

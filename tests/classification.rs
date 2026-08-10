@@ -159,19 +159,21 @@ fn the_periodic_resolution_boundary_is_where_we_think_it_is() {
     // Only ratio = √2 is an actual normal mode; everything else is
     // quasiperiodic. Curves thinner than one bucket (max_radius/200) cannot
     // be resolved and read as periodic — that is a documented limitation,
-    // but the boundary must not drift silently. See issue #13.
+    // but the boundary must not drift silently. The measured boundary sits
+    // between ratio 1.405 (Δ|−√2| = 0.0092, reads periodic) and 1.400
+    // (Δ = 0.0142, resolves), so probe both sides of it (see issue #13).
     let a = 0.01;
-    let resolved = classify(State::new(a, 0.0, a * 1.39, 0.0), 0.015).unwrap();
+    let resolved = classify(State::new(a, 0.0, a * 1.400, 0.0), 0.015).unwrap();
     assert_eq!(
         resolved.classification,
         Classification::Quasiperiodic,
-        "ratio 1.39 must be resolved as quasiperiodic"
+        "ratio 1.400 must be resolved as quasiperiodic"
     );
-    let unresolved = classify(State::new(a, 0.0, a * (SQRT_2 - 0.0001), 0.0), 0.015).unwrap();
+    let unresolved = classify(State::new(a, 0.0, a * 1.405, 0.0), 0.015).unwrap();
     assert_eq!(
         unresolved.classification,
         Classification::Periodic,
-        "a curve within the documented resolution limit must read periodic"
+        "ratio 1.405 is within the documented resolution limit"
     );
 }
 

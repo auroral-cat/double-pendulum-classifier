@@ -36,7 +36,11 @@ const CASE2: [f64; 4] = [2.4, 0.0, 0.0, 0.0];
 const POINCARE_Y0: [f64; 4] = [1.0, 0.0, 0.5, 0.0];
 /// Rod 2 spins over the top: raw θ₂ runs away monotonically, so a crossing
 /// test on unwrapped θ₂ reports ~5 points while the wrapped library logic
-/// reports dozens. Keeps the verification table honest about the wrap.
+/// reports dozens. Keeps the verification table honest about the wrap. The
+/// start is deliberately *not* a scientific-equivalence check: it sits above
+/// the separatrix (energy +2.6, λ ≈ 1.0) and is genuinely chaotic, so its
+/// crossing counts legitimately vary by ~10% between backends — the row
+/// guards the wrap (5 vs dozens), not bit-level agreement.
 const CIRCULATING_Y0: [f64; 4] = [0.0, 0.0, 0.0, 8.0];
 
 /// Right-hand side of the double pendulum on a plain `[f64; 4]`, shared by all
@@ -299,7 +303,6 @@ fn lyapunov_workload(b: &dyn Backend, y0: [f64; 4]) -> f64 {
     .expect("lyapunov integration")
 }
 
-/// Poincaré section: count upward crossings of `θ₂ = 0` over 200 s.
 /// Poincaré section: count crossings over 200 s, using the library's own
 /// crossing logic so the benchmark cannot drift from it (issues #10, #16).
 fn poincare_workload(b: &dyn Backend, y0: [f64; 4]) -> usize {
@@ -347,7 +350,9 @@ fn verify() {
             ye[0]
         );
     }
-    println!();
+    // The circulating column is a chaos-sensitive guard (see CIRCULATING_Y0):
+    // its counts legitimately vary between backends, unlike the other columns.
+    println!("  ^ circulating start is chaotic: counts vary by backend by design\n");
 }
 
 fn configure() -> Criterion {
