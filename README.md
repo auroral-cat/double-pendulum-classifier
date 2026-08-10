@@ -3,6 +3,15 @@
 A small Rust program that watches a double pendulum and tells you
 what kind of motion it is in: **chaotic**, **periodic**, or **quasiperiodic**.
 
+## AI Usage Policy
+
+Most or all of this code was written by `DeepSeek-V4-Flash-0731` via the `Pi` coding harness. 
+`GLM-5.2` (via `Pi`) & `Claude-Opus-5` (via `Claude Code`) were used for code review. 
+As such, please use at your own risk. This project was written to sate personal curiosity.
+
+This usage policy was also the only thing fully written by a human being. If nothing else, 
+this is probably the only thing that "must" be written by hand nowadays to maintain respect for you, the reader.
+
 ## The problem
 
 The double pendulum is one of the best-known examples of chaos.
