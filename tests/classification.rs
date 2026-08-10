@@ -155,6 +155,27 @@ fn off_mode_orbits_are_quasiperiodic() {
 }
 
 #[test]
+fn the_periodic_resolution_boundary_is_where_we_think_it_is() {
+    // Only ratio = √2 is an actual normal mode; everything else is
+    // quasiperiodic. Curves thinner than one bucket (max_radius/200) cannot
+    // be resolved and read as periodic — that is a documented limitation,
+    // but the boundary must not drift silently. See issue #13.
+    let a = 0.01;
+    let resolved = classify(State::new(a, 0.0, a * 1.39, 0.0), 0.015).unwrap();
+    assert_eq!(
+        resolved.classification,
+        Classification::Quasiperiodic,
+        "ratio 1.39 must be resolved as quasiperiodic"
+    );
+    let unresolved = classify(State::new(a, 0.0, a * 1.4142, 0.0), 0.015).unwrap();
+    assert_eq!(
+        unresolved.classification,
+        Classification::Periodic,
+        "ratio 1.4142 is within the documented resolution limit"
+    );
+}
+
+#[test]
 fn energy_is_conserved_over_the_integration() {
     let y0 = State::new(0.2, 0.0, -0.15, 0.0);
     let t_eval: Vec<f64> = (0..=200).map(|i| i as f64 * 0.1).collect(); // 0 s → 20 s
