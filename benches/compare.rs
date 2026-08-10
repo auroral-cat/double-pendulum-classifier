@@ -30,7 +30,9 @@ const CASE2: [f64; 4] = [2.4, 0.0, 0.0, 0.0];
 const POINCARE_Y0: [f64; 4] = [1.0, 0.0, 0.5, 0.0];
 
 /// Right-hand side of the double pendulum on a plain `[f64; 4]`, shared by all
-/// backends so that the equations are bit-identical.
+/// backends so that the equations are bit-identical. Kept in textbook form,
+/// matching `dynamics::double_pendulum`.
+#[allow(clippy::suboptimal_flops)]
 fn pendulum_rhs(y: [f64; 4]) -> [f64; 4] {
     let θ1 = y[0];
     let ω1 = y[1];
@@ -38,7 +40,7 @@ fn pendulum_rhs(y: [f64; 4]) -> [f64; 4] {
     let ω2 = y[3];
     let c = (θ1 - θ2).cos();
     let s = (θ1 - θ2).sin();
-    let den = 1.0 + s * s;
+    let den = s.mul_add(s, 1.0);
     let ω1_dot = (G * θ2.sin() * c - s * (ω1 * ω1 * c + ω2 * ω2) - 2.0 * G * θ1.sin()) / den;
     let ω2_dot = (2.0 * (ω1 * ω1 * s - G * θ2.sin() + G * θ1.sin() * c) + ω2 * ω2 * s * c) / den;
     [ω1, ω1_dot, ω2, ω2_dot]
@@ -46,9 +48,11 @@ fn pendulum_rhs(y: [f64; 4]) -> [f64; 4] {
 
 /// `np.arange(start, stop, step)`.
 fn arange(start: f64, stop: f64, step: f64) -> Vec<f64> {
+    // See `classifier::arange` for why this conversion is safe.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let n = ((stop - start) / step).ceil() as usize;
     (0..n)
-        .map(|i| start + i as f64 * step)
+        .map(|i| (i as f64).mul_add(step, start))
         .take_while(|t| *t < stop)
         .collect()
 }
@@ -228,14 +232,23 @@ impl Backend for PeroxideBackend {
         let mut next = 0;
         let rk4 = RK4;
         let problem = PendulumProblem;
-        while t < t_end {
+        // `loop`/`break` form of the floating-point step loop: RK4 advances by
+        // exactly `h`, so `t` reaches `t_end` after a finite number of steps.
+        loop {
             let h = self.dt.min(t_end - t);
             rk4.step(&problem, t, &mut y, h)
                 .map_err(|e| e.to_string())?;
             t += h;
-            while next < t_eval.len() && t >= t_eval[next] - 1e-9 {
+            // Collect any grid points the step has reached or passed.
+            while next < t_eval.len() {
+                if t < t_eval[next] - 1e-9 {
+                    break;
+                }
                 out.push(y);
                 next += 1;
+            }
+            if t >= t_end {
+                break;
             }
         }
         while next < t_eval.len() {
@@ -254,6 +267,8 @@ impl Backend for PeroxideBackend {
 fn lyapunov_workload(b: &dyn Backend, y0: [f64; 4]) -> f64 {
     let p = LyapunovParams::default();
     let t_eval = arange(0.0, p.t, p.dt);
+    // `renorm` and `dt` are positive, so the quotient is non-negative.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let n_renorm = ((p.renorm / p.dt).floor() as usize).max(1);
 
     let ref_sol = b.integrate(y0, &t_eval).expect("reference integration");
@@ -277,14 +292,14 @@ fn lyapunov_workload(b: &dyn Backend, y0: [f64; 4]) -> f64 {
             y_pert[2] - ref_i[2],
             y_pert[3] - ref_i[3],
         ];
-        let d = (δ[0] * δ[0] + δ[1] * δ[1] + δ[2] * δ[2] + δ[3] * δ[3]).sqrt();
+        let d = δ.iter().map(|&x| x * x).sum::<f64>().sqrt();
         log_sum += (d / p.δ0).ln();
         // Renormalise: keep the direction of the deviation, reset its size.
         y_pert = [
-            ref_i[0] + (p.δ0 / d) * δ[0],
-            ref_i[1] + (p.δ0 / d) * δ[1],
-            ref_i[2] + (p.δ0 / d) * δ[2],
-            ref_i[3] + (p.δ0 / d) * δ[3],
+            (p.δ0 / d).mul_add(δ[0], ref_i[0]),
+            (p.δ0 / d).mul_add(δ[1], ref_i[1]),
+            (p.δ0 / d).mul_add(δ[2], ref_i[2]),
+            (p.δ0 / d).mul_add(δ[3], ref_i[3]),
         ];
 
         t_start = t_end;

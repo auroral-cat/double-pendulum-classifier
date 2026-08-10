@@ -39,12 +39,16 @@ impl State {
 
 /// Right-hand side `ẏ = f(t, y)` of the double-pendulum ODE.
 ///
-/// Mirrors `double_pendulum(t, y, g=9.81)` in the Python original.
+/// The equations are kept in their textbook form for readability; clippy's
+/// `suboptimal_flops` would rewrite every product as a fused multiply–add
+/// chain, which would obscure the mathematics without changing the result to
+/// leading order.
+#[allow(clippy::suboptimal_flops)]
 pub fn double_pendulum(_t: f64, y: State, g: f64) -> State {
     let State { θ1, ω1, θ2, ω2 } = y;
     let c = (θ1 - θ2).cos();
     let s = (θ1 - θ2).sin();
-    let den = 1.0 + s * s; // m₁ = m₂ = 1
+    let den = s.mul_add(s, 1.0); // m₁ = m₂ = 1
 
     let ω1_dot = (g * θ2.sin() * c - s * (ω1 * ω1 * c + ω2 * ω2) - 2.0 * g * θ1.sin()) / den;
     let ω2_dot = (2.0 * (ω1 * ω1 * s - g * θ2.sin() + g * θ1.sin() * c) + ω2 * ω2 * s * c) / den;
@@ -59,7 +63,9 @@ pub fn double_pendulum(_t: f64, y: State, g: f64) -> State {
 
 /// Total mechanical energy `E = T + V` for `m = L = 1`.
 ///
-/// Useful as a conservation check for the integrator.
+/// Useful as a conservation check for the integrator. Kept in textbook form
+/// for the same readability reason as [`double_pendulum`].
+#[allow(clippy::suboptimal_flops)]
 pub fn energy(y: State, g: f64) -> f64 {
     let State { θ1, ω1, θ2, ω2 } = y;
     let kinetic = ω1 * ω1 + 0.5 * ω2 * ω2 + ω1 * ω2 * (θ1 - θ2).cos();
@@ -80,6 +86,7 @@ mod tests {
     #[test]
     fn energy_at_the_bottom_is_minus_three_g() {
         let e = energy(State::new(0.0, 0.0, 0.0, 0.0), G);
-        assert!((e - (-3.0 * G)).abs() < 1e-12);
+        let expected = -3.0 * G;
+        assert!((e - expected).abs() < 1e-12);
     }
 }

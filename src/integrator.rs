@@ -150,7 +150,11 @@ where
     for interval in t_eval.windows(2) {
         let (ta, tb) = (interval[0], interval[1]);
         let mut t = ta;
-        while t < tb {
+        // A `loop`/`break` form of the floating-point step loop: each accepted
+        // step advances `t` by at least one ulp and rejected steps shrink `h`
+        // geometrically (guarded by the underflow check below), so the loop is
+        // guaranteed to terminate.
+        loop {
             let h_step = h.min(tb - t);
             if h_step < f64::MIN_POSITIVE {
                 return Err(IntegratorError::StepSizeUnderflow { t });
@@ -164,6 +168,9 @@ where
                 // as the next step's first stage. On rejection the step origin
                 // is unchanged, so the previous `k0` stays valid.
                 k0 = Some(k7);
+                if t >= tb {
+                    break;
+                }
             }
         }
         ys.push(y);
@@ -217,7 +224,7 @@ where
         .zip(&y4)
         .zip(y)
         .map(|((y5_n, y4_n), y_n)| {
-            let scale = atol + rtol * y_n.abs().max(y5_n.abs());
+            let scale = rtol.mul_add(y_n.abs().max(y5_n.abs()), atol);
             let e = (y5_n - y4_n) / scale;
             e * e
         })
@@ -253,11 +260,11 @@ where
     let f0 = f(t0, y0);
     let (mut sum_y2, mut sum_f2) = (0.0, 0.0);
     for (y_n, f_n) in y0.iter().zip(&f0) {
-        let scale = atol + rtol * y_n.abs();
+        let scale = rtol.mul_add(y_n.abs(), atol);
         let y_scaled = y_n / scale;
         let f_scaled = f_n / scale;
-        sum_y2 += y_scaled * y_scaled;
-        sum_f2 += f_scaled * f_scaled;
+        sum_y2 = y_scaled.mul_add(y_scaled, sum_y2);
+        sum_f2 = f_scaled.mul_add(f_scaled, sum_f2);
     }
     let d0 = (sum_y2 / N as f64).sqrt();
     let d1 = (sum_f2 / N as f64).sqrt();

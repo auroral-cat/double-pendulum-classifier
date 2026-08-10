@@ -103,9 +103,16 @@ pub struct ClassificationResult {
 /// state at every `renorm` interval, accumulating `log(d/δ₀)` — this keeps
 /// the separation small so that `λ₁ ≈ (1/t) Σ log(d/δ₀)` even when the
 /// trajectories would otherwise decorrelate completely.
+///
+/// # Errors
+///
+/// Returns an [`IntegratorError`] if any of the integrations fail.
 pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorError> {
     let f = |t: f64, y: &[f64; 4]| double_pendulum(t, State::from_array(*y), G).to_array();
     let t_eval = arange(0.0, p.t, p.dt);
+    // `renorm` and `dt` are positive, so the quotient is non-negative and the
+    // conversion cannot truncate or lose a sign.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let n_renorm = ((p.renorm / p.dt).floor() as usize).max(1);
 
     // Reference trajectory sampled on the full grid.
@@ -130,7 +137,7 @@ pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorE
         if d > 0.0 {
             log_sum += (d / p.δ0).ln();
             // Renormalise: keep the direction of the deviation, reset its size.
-            y_pert = std::array::from_fn(|k| ref_i[k] + (p.δ0 / d) * δ[k]);
+            y_pert = std::array::from_fn(|k| (p.δ0 / d).mul_add(δ[k], ref_i[k]));
         }
 
         t_start = t_end;
@@ -144,6 +151,10 @@ pub fn largest_lyapunov(y0: State, p: LyapunovParams) -> Result<f64, IntegratorE
 ///
 /// Crossings are detected on the sampled grid and refined with linear
 /// interpolation, exactly as in the Python original.
+///
+/// # Errors
+///
+/// Returns an [`IntegratorError`] if the integration fails.
 pub fn poincare_section(y0: State, p: PoincareParams) -> Result<Vec<[f64; 2]>, IntegratorError> {
     let f = |t: f64, y: &[f64; 4]| double_pendulum(t, State::from_array(*y), G).to_array();
     let t_eval = arange(0.0, p.t, p.dt);
@@ -155,8 +166,8 @@ pub fn poincare_section(y0: State, p: PoincareParams) -> Result<Vec<[f64; 2]>, I
         if prev[2] < 0.0 && cur[2] >= 0.0 {
             // Linear interpolation for a slightly cleaner crossing.
             let α = -prev[2] / (cur[2] - prev[2]);
-            let θ1_cross = prev[0] + α * (cur[0] - prev[0]);
-            let ω1_cross = prev[1] + α * (cur[1] - prev[1]);
+            let θ1_cross = α.mul_add(cur[0] - prev[0], prev[0]);
+            let ω1_cross = α.mul_add(cur[1] - prev[1], prev[1]);
             points.push([θ1_cross, ω1_cross]);
         }
     }
@@ -169,7 +180,11 @@ pub fn unique_rounded(points: &[[f64; 2]], decimals: i32) -> usize {
     let factor = 10f64.powi(decimals);
     let mut seen = HashSet::new();
     for [θ1, ω1] in points {
-        seen.insert(((θ1 * factor).round() as i64, (ω1 * factor).round() as i64));
+        // `round` first makes the value integral, so no truncation occurs, and
+        // the pendulum's coordinates are bounded well within the `i64` range.
+        #[allow(clippy::cast_possible_truncation)]
+        let key = ((θ1 * factor).round() as i64, (ω1 * factor).round() as i64);
+        seen.insert(key);
     }
     seen.len()
 }
@@ -180,6 +195,10 @@ pub fn unique_rounded(points: &[[f64; 2]], decimals: i32) -> usize {
 /// the orbit is labelled [`Classification::Chaotic`]; below it the Poincaré
 /// section decides between periodic, quasiperiodic and "need longer
 /// integration".
+///
+/// # Errors
+///
+/// Returns an [`IntegratorError`] if any of the integrations fail.
 pub fn classify(y0: State, λ_threshold: f64) -> Result<ClassificationResult, IntegratorError> {
     let λ = largest_lyapunov(y0, LyapunovParams::default())?;
     if λ > λ_threshold {
@@ -217,9 +236,13 @@ pub fn classify(y0: State, λ_threshold: f64) -> Result<ClassificationResult, In
 
 /// `np.arange(start, stop, step)` — evenly spaced values in `[start, stop)`.
 fn arange(start: f64, stop: f64, step: f64) -> Vec<f64> {
+    // `ceil` of a non-negative quotient (`start ≤ stop`, `step > 0`); the
+    // grid is additionally capped by `take_while`, so the conversion cannot
+    // truncate or lose a sign for the grids used here.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let n = ((stop - start) / step).ceil() as usize;
     (0..n)
-        .map(|i| start + i as f64 * step)
+        .map(|i| (i as f64).mul_add(step, start))
         .take_while(|t| *t < stop)
         .collect()
 }
