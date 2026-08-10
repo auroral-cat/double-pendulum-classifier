@@ -68,10 +68,10 @@ Example output:
 
 ```
 case 1 — small-angle start (regular):
-  λ = 0.0028  →  quasiperiodic (177 Poincaré points, 177 unique after rounding to 3 decimals)
+  λ = 0.0051  →  quasiperiodic (177 Poincaré points, 177 unique after rounding to 3 decimals)
 
 case 2 — high-energy start (strongly chaotic):
-  λ = 1.1087  →  chaotic
+  λ = 1.1352  →  chaotic
 ```
 
 ## Project layout
@@ -104,11 +104,8 @@ the comments in `benches/compare.rs` for details.
 Run it yourself with:
 
 ```bash
-cargo bench --bench compare -- --bench
+cargo bench --bench compare
 ```
-
-(The explicit `--bench` tells criterion to run in benchmark mode rather than
-the one-shot smoke-test mode it defaults to when `harness = false`.)
 
 ## Notes
 
