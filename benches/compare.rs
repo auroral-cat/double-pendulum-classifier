@@ -13,7 +13,7 @@
 use std::hint::black_box;
 use std::time::Duration;
 
-use criterion::{BenchmarkId, Criterion, criterion_group};
+use criterion::{BenchmarkId, Criterion};
 
 use double_pendulum_classifier::{LyapunovParams, State};
 
@@ -375,10 +375,15 @@ fn bench_poincare(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group! {
-    name = benches;
-    config = configure();
-    targets = bench_integrate, bench_lyapunov, bench_poincare
+/// Run every benchmark group and print criterion's end-of-run summary.
+fn benches() {
+    let mut criterion = configure().configure_from_args();
+    bench_integrate(&mut criterion);
+    bench_lyapunov(&mut criterion);
+    bench_poincare(&mut criterion);
+    // With `harness = false`, criterion's end-of-run summary (and the
+    // change-vs-last-run comparison) is only printed if asked for explicitly.
+    criterion.final_summary();
 }
 
 fn main() {
