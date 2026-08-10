@@ -189,11 +189,13 @@ where
     ys.push(y0);
 
     let mut y = y0;
-    let mut h = select_initial_step(&f, t_eval[0], &y0, rtol, atol);
+    let (mut h, f0) = select_initial_step(&f, t_eval[0], &y0, rtol, atol);
     // Dormand–Prince is a FSAL (first-same-as-last) pair: the final stage
     // `k₇ = f(t + h, y₅)` of an accepted step is exactly the first stage of
-    // the next step, so it only has to be evaluated once per step.
-    let mut k0 = None;
+    // the next step, so it only has to be evaluated once per step. The initial
+    // step's first stage comes free from `select_initial_step`, which already
+    // evaluated `f(t₀, y₀)` to pick `h`.
+    let mut k0 = Some(f0);
     let mut t = t_eval[0];
     let mut next = 1; // index of the next `t_eval` entry to output
 
@@ -337,15 +339,24 @@ fn step_factor(err_norm: f64) -> f64 {
     }
 }
 
-/// Initial step size following scipy's `select_initial_step` heuristic
-/// (Hairer et al., *Solving Ordinary Differential Equations I*, eq. 4.14).
+/// Initial step size from the first stage of Hairer's heuristic (Hairer
+/// et al., *Solving Ordinary Differential Equations I*, eq. 4.14):
+/// `h = 0.01 · ‖y₀‖/‖f(t₀, y₀)‖` in the `rtol`/`atol`-scaled norm. The second
+/// stage of the heuristic (a trial Euler step to estimate the local
+/// curvature) is omitted — the adaptive controller corrects any overestimate
+/// within the first few steps.
+///
+/// Returns the evaluation `f0 = f(t0, y0)` alongside the step size so the
+/// caller can seed the first step's first stage; `f0` is exactly `k₁` of a
+/// step starting at `(t0, y0)`, so reusing it saves one right-hand-side
+/// evaluation per [`integrate`] call.
 fn select_initial_step<const N: usize, F>(
     f: &F,
     t0: f64,
     y0: &[f64; N],
     rtol: f64,
     atol: f64,
-) -> f64
+) -> (f64, [f64; N])
 where
     F: Fn(f64, &[f64; N]) -> [f64; N],
 {
@@ -360,11 +371,12 @@ where
     }
     let d0 = (sum_y2 / N as f64).sqrt();
     let d1 = (sum_f2 / N as f64).sqrt();
-    if d0 < 1e-5 || d1 < 1e-5 {
+    let h = if d0 < 1e-5 || d1 < 1e-5 {
         1e-6
     } else {
         0.01 * d0 / d1
-    }
+    };
+    (h, f0)
 }
 
 #[cfg(test)]
@@ -426,5 +438,22 @@ mod tests {
             matches!(r, Err(IntegratorError::StepSizeUnderflow { t }) if (t - 0.005).abs() < 1e-4),
             "expected StepSizeUnderflow near t = 0.005, got {r:?}"
         );
+    }
+
+    #[test]
+    fn initial_step_seeds_the_first_stage_without_an_extra_evaluation() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = AtomicUsize::new(0);
+        let f = |_t: f64, y: &[f64; 1]| {
+            calls.fetch_add(1, Ordering::Relaxed);
+            [y[0]]
+        };
+        let sol = integrate(f, [1.0], &[0.0, 2.0], 1e-9, 1e-9).unwrap();
+        assert!((sol[1][0] - 2.0f64.exp()).abs() < 1e-7);
+        // `select_initial_step`'s f0 is reused as the first step's first
+        // stage, so the total is 1 + 6 per `rk45_step` (six new stages per
+        // step). Without the seed it would be 2 + 6 per step.
+        let c = calls.load(Ordering::Relaxed);
+        assert_eq!(c % 6, 1, "expected 1 + 6·steps RHS calls, got {c}");
     }
 }
