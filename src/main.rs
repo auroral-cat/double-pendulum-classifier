@@ -1,14 +1,15 @@
 //! Command-line front end for the double-pendulum classifier.
 //!
-//! `cargo run` runs the two demo cases from the Python original; pass four
-//! (or five, with a custom `λ_threshold`) numbers to classify your own start:
+//! `cargo run` runs two demo cases; pass four (or five, with a custom
+//! `λ_threshold`) numbers to classify your own start:
 //! `cargo run -- θ1 ω1 θ2 ω2 [λ_threshold]`.
 
 use std::process::ExitCode;
 
 use double_pendulum_classifier::{ClassificationResult, IntegratorError, State, classify};
 
-/// The `λ_threshold=0.015` of the Python original.
+/// Default chaotic threshold: the orbit is labelled chaotic when `λ₁` exceeds
+/// it.
 const DEFAULT_Λ_THRESHOLD: f64 = 0.015;
 
 fn main() -> ExitCode {
@@ -23,7 +24,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// The two demo starts from the Python original's `__main__`.
+/// The two demo starts: a small-angle regular orbit and a high-energy
+/// chaotic one.
 fn run_demo() -> ExitCode {
     println!("case 1 — small-angle start (regular):");
     let case1 = print_result(classify(

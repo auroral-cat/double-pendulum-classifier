@@ -1,13 +1,12 @@
 //! Largest Lyapunov exponent (two-trajectory method), Poincaré section and the
 //! chaotic / regular classifier.
 //!
-//! This is a faithful reimplementation of the Python experiment, except that
-//! the renormalisation inside [`largest_lyapunov`] is *real*: the perturbed
+//! The renormalisation inside [`largest_lyapunov`] is *real*: the perturbed
 //! trajectory is re-integrated from the rescaled state at every checkpoint
-//! (the intended Benettin scheme). In the Python original the renormalisation
-//! only edited the stored solution array after `solve_ivp` had finished, so it
-//! never affected the integration and the log-sum telescoped down to a single
-//! final-separation measurement.
+//! (the intended Benettin scheme). Renormalising after the reference
+//! integration has finished — editing the stored solution — has no effect on
+//! the trajectory, so the naive variant of this method telescopes the log-sum
+//! down to a single final-separation measurement.
 
 use std::collections::HashSet;
 use std::fmt;
@@ -19,10 +18,9 @@ use crate::integrator::{IntegratorError, integrate};
 ///
 /// The two-trajectory Lyapunov estimate measures the separation `d ≈ δ₀` of
 /// two nearby trajectories, which is only meaningful when the integrator's
-/// own trajectory error is much smaller than `δ₀ = 1e-8`. At the nominal
-/// `rtol = atol = 1e-9` of the Python original the separation sits at the
-/// edge of that regime and the estimate is biased high (the original itself
-/// runs at the edge of its own accuracy). With `1e-12` the deviation is
+/// own trajectory error is much smaller than `δ₀ = 1e-8`. At looser
+/// tolerances (`rtol = atol = 1e-9`) the separation sits at the edge of that
+/// regime and the estimate is biased high. With `1e-12` the deviation is
 /// resolved with a comfortable margin.
 const RTOL: f64 = 1e-12;
 const ATOL: f64 = 1e-12;
@@ -98,7 +96,7 @@ impl fmt::Display for Classification {
 }
 
 /// Result of [`classify`]; `points` carries the Poincaré section for regular
-/// orbits and is `None` for chaotic ones (as in the Python original).
+/// orbits and is `None` for chaotic ones.
 #[derive(Debug)]
 pub struct ClassificationResult {
     pub classification: Classification,
@@ -146,8 +144,8 @@ pub fn largest_lyapunov_with<I, E>(y0: State, p: LyapunovParams, integrate_fn: I
 where
     I: Fn([f64; 4], &[f64]) -> Result<Vec<[f64; 4]>, E>,
 {
-    let mut t_eval = arange(0.0, p.t, p.dt);
-    // A horizon shorter than the grid spacing collapses `arange` to a single
+    let mut t_eval = even_grid(0.0, p.t, p.dt);
+    // A horizon shorter than the grid spacing collapses `even_grid` to a single
     // entry; clamp to `[0.0, p.t]` so the integration is well-defined and the
     // short-horizon fallback below (`t_start <= 0.0` → `Ok(0.0)`) can run.
     if t_eval.len() < 2 {
@@ -215,7 +213,7 @@ where
 /// Poincaré section: record `(θ₁, ω₁)` each time `θ₂` crosses 0 upward.
 ///
 /// Crossings are detected on the sampled grid and refined with linear
-/// interpolation, exactly as in the Python original. Both angles are wrapped
+/// interpolation. Both angles are wrapped
 /// into `(−π, π]` first: the ODE integrates `θ` as an unbounded real, but the
 /// section condition is a statement about the physical configuration, which
 /// is 2π-periodic. Without the wrap, an orbit whose rods circulate would
@@ -227,7 +225,7 @@ where
 /// Returns an [`IntegratorError`] if the integration fails.
 pub fn poincare_section(y0: State, p: PoincareParams) -> Result<Vec<[f64; 2]>, IntegratorError> {
     let f = |t: f64, y: &[f64; 4]| double_pendulum(t, State::from_array(*y), G).to_array();
-    let t_eval = arange(0.0, p.t, p.dt);
+    let t_eval = even_grid(0.0, p.t, p.dt);
     let sol = integrate(f, y0.to_array(), &t_eval, RTOL, ATOL)?;
     Ok(section_from_solution(&sol))
 }
@@ -272,7 +270,7 @@ fn wrap_pi(θ: f64) -> f64 {
 }
 
 /// Number of distinct points after rounding each coordinate to `decimals`
-/// places (the `np.round(pts, decimals=3)` + `np.unique(axis=0)` test).
+/// places.
 ///
 /// Kept for display purposes ([`crate::main`] uses it when printing a
 /// section); the classification itself uses [`unique_scaled`], which is
@@ -354,7 +352,7 @@ pub fn unique_scaled(points: &[[f64; 2]], n_buckets: f64) -> usize {
 
 /// Full chaotic / regular classification of a starting state.
 ///
-/// `λ_threshold` is the `λ_threshold=0.015` of the Python original: above it
+/// `λ_threshold` is the chaotic threshold, defaulting to 0.015: above it
 /// the orbit is labelled [`Classification::Chaotic`]; below it the Poincaré
 /// section decides between periodic, quasiperiodic and "need longer
 /// integration".
@@ -416,8 +414,8 @@ pub fn renorm_stride(renorm: f64, dt: f64) -> usize {
     ((renorm / dt).round() as usize).max(1)
 }
 
-/// `np.arange(start, stop, step)` — evenly spaced values in `[start, stop)`.
-fn arange(start: f64, stop: f64, step: f64) -> Vec<f64> {
+/// Evenly spaced values in `[start, stop)` with spacing `step`.
+fn even_grid(start: f64, stop: f64, step: f64) -> Vec<f64> {
     // `ceil` of a non-negative quotient (`start ≤ stop`, `step > 0`); the
     // grid is additionally capped by `take_while`, so the conversion cannot
     // truncate or lose a sign for the grids used here.
@@ -434,10 +432,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn arange_matches_numpy_semantics() {
-        assert_eq!(arange(0.0, 100.0, 0.02).len(), 5000);
-        assert_eq!(arange(0.0, 200.0, 0.01).len(), 20000);
-        let t = arange(0.0, 100.0, 0.02);
+    fn even_grid_matches_the_documented_semantics() {
+        assert_eq!(even_grid(0.0, 100.0, 0.02).len(), 5000);
+        assert_eq!(even_grid(0.0, 200.0, 0.01).len(), 20000);
+        let t = even_grid(0.0, 100.0, 0.02);
         assert!(*t.last().unwrap() < 100.0);
         assert!(t.windows(2).all(|w| w[1] > w[0]));
     }
@@ -456,7 +454,7 @@ mod tests {
 
     #[test]
     fn horizon_shorter_than_the_grid_spacing_returns_zero() {
-        // t < dt collapses `arange` to a single entry; the grid must be
+        // t < dt collapses `even_grid` to a single entry; the grid must be
         // clamped to [0, t] so the short-horizon fallback runs instead of a
         // confusing InvalidTimeGrid error.
         let p = LyapunovParams {

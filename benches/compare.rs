@@ -60,9 +60,9 @@ fn pendulum_rhs(y: [f64; 4]) -> [f64; 4] {
     [ω1, ω1_dot, ω2, ω2_dot]
 }
 
-/// `np.arange(start, stop, step)`.
-fn arange(start: f64, stop: f64, step: f64) -> Vec<f64> {
-    // See `classifier::arange` for why this conversion is safe.
+/// Evenly spaced values in `[start, stop)` with spacing `step`.
+fn even_grid(start: f64, stop: f64, step: f64) -> Vec<f64> {
+    // See `classifier::even_grid` for why this conversion is safe.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let n = ((stop - start) / step).ceil() as usize;
     (0..n)
@@ -306,14 +306,14 @@ fn lyapunov_workload(b: &dyn Backend, y0: [f64; 4]) -> f64 {
 /// Poincaré section: count crossings over 200 s, using the library's own
 /// crossing logic so the benchmark cannot drift from it (issues #10, #16).
 fn poincare_workload(b: &dyn Backend, y0: [f64; 4]) -> usize {
-    let t_eval = arange(0.0, 200.0, 0.01);
+    let t_eval = even_grid(0.0, 200.0, 0.01);
     let sol = b.integrate(y0, &t_eval).expect("poincaré integration");
     double_pendulum_classifier::section_from_solution(&sol).len()
 }
 
 /// Single 100 s reference integration sampled at dt = 0.02.
 fn integrate_workload(b: &dyn Backend) -> [f64; 4] {
-    let t_eval = arange(0.0, 100.0, 0.02);
+    let t_eval = even_grid(0.0, 100.0, 0.02);
     let sol = b.integrate(CASE1, &t_eval).expect("integration");
     *sol.last().unwrap()
 }

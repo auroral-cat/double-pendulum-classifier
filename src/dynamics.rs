@@ -6,7 +6,7 @@
 //! measured from the downward vertical (both absolute, not relative to
 //! each other).
 
-/// Gravitational acceleration in m/s² (the `g` default of the Python original).
+/// Gravitational acceleration in m/s².
 pub const G: f64 = 9.81;
 
 /// Full state of the double pendulum.

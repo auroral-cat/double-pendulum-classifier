@@ -1,13 +1,11 @@
 //! A self-contained Dormand–Prince 5(4) (RK45) adaptive integrator.
 //!
-//! It reproduces the semantics of scipy's `solve_ivp` with `method="RK45"`:
-//! per-component `rtol`/`atol` scaling, an RMS error norm, and dense output —
-//! the step sequence is chosen freely by the controller and the requested
-//! output times are read from the Dormand–Prince interpolant, so the results
-//! are independent of the output grid, exactly as in scipy. As in scipy, each
-//! step is bounded by the end of the requested span (`t_bound` there); it is
-//! *not* clipped at the individual output times, which would pin the step
-//! size to the grid spacing.
+//! Per-component `rtol`/`atol` scaling with an RMS error norm, free adaptive
+//! steps chosen solely by the error controller, and dense output: the
+//! requested output times are read from the Dormand–Prince interpolant, so
+//! the results are independent of the output grid. Each step is bounded by
+//! the end of the requested span; it is *not* clipped at the individual
+//! output times, which would pin the step size to the grid spacing.
 
 use std::error::Error;
 use std::fmt;
@@ -61,8 +59,8 @@ const B5: [f64; 7] = [
     0.0,
 ];
 
-/// Dense-output coefficients `P` (the Shampine quartic interpolant used by
-/// scipy for RK45):
+/// Dense-output coefficients `P` (the Shampine quartic interpolant for the
+/// Dormand–Prince pair):
 ///
 /// ```text
 /// y(t_old + x·h) = y_old + h·Σ_s k_s·(P[s][0]·x + P[s][1]·x² + P[s][2]·x³ + P[s][3]·x⁴)
@@ -159,9 +157,9 @@ impl Error for IntegratorError {}
 /// `t_eval` must be strictly increasing. The Dormand–Prince 5(4) pair runs
 /// with free adaptive steps chosen solely by the error controller, and each
 /// requested output time is read from the step's dense-output interpolant —
-/// the step sequence does not depend on the output grid (the same strategy
-/// `solve_ivp` uses). `rtol` and `atol` are the per-component
-/// relative/absolute tolerances and must both be strictly positive.
+/// the step sequence does not depend on the output grid. `rtol` and `atol`
+/// are the per-component relative/absolute tolerances and must both be
+/// strictly positive.
 ///
 /// # Errors
 ///
@@ -214,9 +212,9 @@ where
     // measurement: the same trajectory integrated over a fine and a coarse
     // grid took different step sequences and diverged by ~1e-10 at t = 50 s.
     loop {
-        // Bound the step by the end of the requested span — `solve_ivp` does
-        // the same with its `t_bound`. Clipping here does *not* reintroduce
-        // the output-grid dependence that dense output removed (issue #7):
+        // Bound the step by the end of the requested span. Clipping here does
+        // *not* reintroduce the output-grid dependence that dense output
+        // removed (issue #7):
         // only the final step is affected, and `t_end` is part of the
         // caller's request, not of how densely the span is sampled.
         let h_step = h.min(t_end - t);
@@ -343,7 +341,7 @@ fn dense_output<const N: usize>(y_old: &[f64; N], h: f64, k: &[[f64; N]; 7], x: 
     out
 }
 
-/// Step-size factor for the error norm, scipy-style:
+/// Step-size factor for the error norm:
 /// `clamp(0.9 · err^(−0.2), 0.2, 10)`. A non-finite error norm is treated as a
 /// rejection (`0.2`) so the loop shrinks the step instead of poisoning it.
 fn step_factor(err_norm: f64) -> f64 {

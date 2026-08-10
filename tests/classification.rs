@@ -29,8 +29,7 @@ fn high_energy_start_is_strongly_chaotic() {
     // The literature value is λ₁ ≈ 1.09, but the two-trajectory estimate
     // varies ~10% between integrators on a chaotic start (the benchmark's
     // four backends span 1.09-1.21 for this exact start); a correct Benettin
-    // estimate must land well above 0.5 (the buggy Python original reported
-    // only ≈ 0.22).
+    // estimate must land well above 0.5.
     assert!(
         res.λ > 0.5,
         "λ = {} should be a large positive exponent",
