@@ -255,8 +255,12 @@ impl Backend for PeroxideBackend {
         let t_end = *t_eval.last().unwrap();
         let mut y = y0;
         let mut t = t_eval[0];
-        let mut out = Vec::with_capacity(t_eval.len());
-        let mut next = 0;
+        // The first output row is the initial state itself; the stepping loop
+        // below only collects *post-step* states, so it must start at index 1.
+        // (A previous version pushed y(dt) as the t = 0 sample, silently
+        // corrupting the first window of the Poincaré crossing detection.)
+        let mut out = vec![y0];
+        let mut next = 1;
         let rk4 = RK4;
         let problem = PendulumProblem;
         // `loop`/`break` form of the floating-point step loop: RK4 advances by
@@ -350,12 +354,20 @@ fn verify() {
             ye[0]
         );
     }
-    // The λ case2 and circulating columns are chaos-sensitive (see
-    // CIRCULATING_Y0): both starts sit above the separatrix, so their values
-    // legitimately vary ~10% between backends, unlike the λ case1, poincaré
-    // and y_end columns.
+    // Every backend must return the initial state at index 0 of its solution
+    // (a regression in the peroxide fixed-step driver pushed y(dt) there,
+    // silently corrupting the first crossing-detection window).
+    for b in backends() {
+        let sol = b.integrate(CASE1, &[0.0, 1.0]).expect("integration");
+        assert_eq!(sol[0], CASE1, "{}: index 0 is not y0", b.name());
+    }
+    // The λ columns are all noise-sensitive: λ case1 is a regular orbit at
+    // the estimator's noise floor (0.0008-0.0051 across backends, within the
+    // documented ≤ 0.012 floor), and λ case2 / the circulating column are
+    // genuinely chaotic (~10% spread by design). Only the poincaré and y_end
+    // columns are strict equivalence checks.
     println!(
-        "  ^ λ case2 and circulating starts are chaotic: values vary ~10% by backend by design\n"
+        "  ^ λ columns are noise-sensitive (case1 within the 0.012 floor, case2/circulating chaotic); only poincaré pts and y_end are strict\n"
     );
 }
 

@@ -112,16 +112,19 @@ pub struct ClassificationResult {
 /// the separation small so that `λ₁ ≈ (1/t) Σ log(d/δ₀)` even when the
 /// trajectories would otherwise decorrelate completely.
 ///
-/// For a regular orbit the log-sum does not grow — it converges to a bounded
-/// constant (`const ≈ 1.5` for this system), because the tangent-space
-/// stretching averages out over each interval. The plain average `log_sum / t`
-/// then decays like `const/t` and cannot be told apart from a genuinely small
-/// growth rate: at the shipped defaults `1.5/100 = 0.015`, exactly the
-/// chaotic threshold, so every regular orbit read as chaotic. The estimate
-/// therefore measures the **growth** of the log-sum: only checkpoints in the
-/// second half of the run contribute (`λ = tail_sum / elapsed`), so a bounded
-/// log-sum yields ≈ 0 regardless of the constant while a chaotic one keeps
-/// its positive growth rate.
+/// For a regular orbit the log-sum does not grow systematically — the
+/// tangent-space stretching averages out, but the sum still wanders, driven
+/// by step-sequence artefacts that do not average out at these horizons
+/// (measured over the demo start's checkpoints: ≈ 3.6 at t = 50, 5.2 at
+/// t = 100, 5.5 at t = 150, 6.5 at t = 350, 6.4 at t = 400 — a noisy walk,
+/// not a bounded constant). The plain average `log_sum / t` therefore decays
+/// like a noisy `const(t)/t` and cannot be told apart from a genuinely small
+/// growth rate: at a 100 s horizon the residual sits at `~1.5/100 = 0.015`,
+/// exactly the chaotic threshold, so every regular orbit read as chaotic.
+/// The estimate therefore measures the **growth** of the log-sum: only
+/// checkpoints in the second half of the run contribute (`λ = tail_sum /
+/// elapsed`), so a wandering-but-sublinear log-sum yields ≈ 0 regardless of
+/// its level while a chaotic one keeps its positive growth rate.
 ///
 /// # Errors
 ///
