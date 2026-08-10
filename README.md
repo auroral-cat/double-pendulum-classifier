@@ -1,20 +1,19 @@
 # Double Pendulum Classifier
 
-A small, friendly Rust program that watches a double pendulum and tells you
+A small Rust program that watches a double pendulum and tells you
 what kind of motion it is in: **chaotic**, **periodic**, or **quasiperiodic**.
 
 ## The problem
 
-The double pendulum — two rods connected end to end, swinging under gravity —
-is one of the best-known examples of chaos. Depending on where you start it,
-it can:
+The double pendulum is one of the best-known examples of chaos.
+Depending on where you start it, it can:
 
-- swing gently in a repeating rhythm (periodic),
-- drift through a pattern that never quite repeats (quasiperiodic),
-- or behave so unpredictably that nearby starting points lead to wildly
+1. Swing gently in a repeating rhythm (periodic),
+2. Drift through a pattern that never quite repeats (quasiperiodic),
+3. Behave so unpredictably that nearby starting points lead to wildly
   different futures (chaotic).
 
-The interesting question is: *given a starting state, which one will it be?*
+*So given a starting state, which one will it be?*
 You cannot tell just by looking — the answer depends on the exact starting
 state in a surprisingly complicated way. This program answers the question
 automatically.
@@ -44,12 +43,15 @@ means chaotic; otherwise the Poincaré section decides.
 
 ## Getting started
 
-You need a recent Rust toolchain (edition 2024). There are **no external
-dependencies** — it builds with just the standard library.
+You need Rust 2024 edition. The binary's only dependency is `color-eyre`
+(error reporting); the solver itself is pure standard library.
 
 ```bash
+# Bring up the help menu
+cargo run --release -- help
+
 # Run the two built-in demo cases
-cargo run --release
+cargo run --release -- demo
 
 # Classify your own starting state: θ1 ω1 θ2 ω2
 cargo run --release -- 0.05 0.0 0.0 0.0
@@ -59,9 +61,6 @@ cargo run --release -- 1.0 0.0 0.5 0.0 0.1
 
 # Run the test suite
 cargo test
-
-# Check the code quality
-cargo clippy --all-targets
 ```
 
 Example output:
@@ -86,14 +85,13 @@ case 2 — high-energy start (strongly chaotic):
 
 ## Performance
 
-This Rust version is fast: the two demo cases finish in about a tenth of a
-second.
+The two demo cases finish in about a tenth of a second.
 
 A benchmark against established ODE crates (`ode_solvers`, `diffsol`,
 `peroxide`) is included. Against the two adaptive solvers — `ode_solvers`'
 Dopri5 and `diffsol`'s TSIT45 — the built-in integrator is the fastest by
-about 1.4–1.9× at `rtol = atol = 1e-12` (measured on the machine that wrote
-this README; the exact margin depends on the hardware).
+about 1.4–1.9× at `rtol = atol = 1e-12` (measured on the author's machine; 
+the exact margin depends on the hardware).
 
 The `peroxide` row is **not** a like-for-like comparison: peroxide's adaptive
 API cannot land on requested output times, so it is driven as fixed-step RK4
@@ -109,10 +107,10 @@ cargo bench --bench compare
 
 ## Notes
 
-- The code uses Greek-letter identifiers (`θ1`, `ω1`, `λ`, `δ0`, …), which
-  Rust fully supports.
-- The binary ships with zero dependencies; the benchmark crates are
-  dev-dependencies only.
+- The binary's only dependency is `color-eyre` for error reporting; the
+  benchmark crates (`criterion`, `diffsol`, `ode_solvers`, `peroxide`, plus
+  `anyhow`, which peroxide's `ODEProblem` trait requires) are dev-dependencies
+  only.
 - A word of caution: no classifier is perfect. The Lyapunov estimate has a
   small noise floor, so the threshold is not a sharp physical boundary —
   orbits with `λ` very close to it are borderline by construction. If a

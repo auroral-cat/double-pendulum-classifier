@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+color-eyre = "0.6.5"
 
 [dev-dependencies]
+# peroxide 0.43's `ODEProblem` trait hardcodes `anyhow::Result` as the `rhs`
+# return type (peroxide uses anyhow internally), so the benchmark's peroxide
+# backend cannot be written against any other error type; keep anyhow for that
+# one trait impl. Everything else uses color-eyre.
 anyhow = "1"
 criterion = "0.8"
 diffsol = { version = "0.16", default-features = false, features = ["nalgebra"] }

@@ -6,6 +6,8 @@
 
 use std::process::ExitCode;
 
+use color_eyre::eyre::Report;
+
 use double_pendulum_classifier::{ClassificationResult, IntegratorError, State, classify};
 
 /// Default chaotic threshold: the orbit is labelled chaotic when `λ₁` exceeds
@@ -13,6 +15,9 @@ use double_pendulum_classifier::{ClassificationResult, IntegratorError, State, c
 const DEFAULT_Λ_THRESHOLD: f64 = 0.015;
 
 fn main() -> ExitCode {
+    // Registers color_eyre's panic/error hooks; every `Report` printed with
+    // `{:?}` below renders through them (colored when stderr is a TTY).
+    color_eyre::install().expect("no other panic/error hook is installed");
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.len() {
         0 => run_demo(),
@@ -81,7 +86,8 @@ fn print_result(result: Result<ClassificationResult, IntegratorError>) -> bool {
             true
         }
         Err(e) => {
-            eprintln!("  integration failed: {e}");
+            let report = Report::new(e).wrap_err("integration failed");
+            eprintln!("{report:?}");
             false
         }
     }
