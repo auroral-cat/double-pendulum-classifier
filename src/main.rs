@@ -26,44 +26,36 @@ Classifies a double pendulum's motion as chaotic, periodic, or
 quasiperiodic, given a starting state.
 
 Usage:
-    double-pendulum-classifier                  no arguments: prints this help
-    double-pendulum-classifier -help, -h        print this help
-    double-pendulum-classifier -help help       print help for the '-help' command
-    double-pendulum-classifier -help demo       print help for the '-demo' command
-    double-pendulum-classifier -demo, -d        run the two built-in demo cases
+    double-pendulum-classifier                  prints me
+    double-pendulum-classifier -help, -h        also prints me
+    double-pendulum-classifier -help [command]  prints help for a specific command
+    double-pendulum-classifier -demo, -d        runs two built-in demo cases
     double-pendulum-classifier θ1 ω1 θ2 ω2 [λ_threshold]
-                                                classify your own starting state
+                                                classify a given starting state
 
 Arguments:
     θ1, θ2        initial angles, in radians
     ω1, ω2        initial angular velocities, in rad/s
     λ_threshold   chaotic threshold: orbits with λ above it are labelled
-                  chaotic (optional; default 0.015)
-
-Examples:
-    cargo run --release -- 0.05 0.0 0.0 0.0
-    cargo run --release -- 1.0 0.0 0.5 0.0 0.1";
+                  chaotic (optional; default 0.015)";
 
 /// Help specific to the `-help` command.
 const HELP_HELP_TEXT: &str = "\
 Help for '-help':
 
-'-help' (or '-h') prints this general help menu.
-'-help help' (or '-h help') prints help for the help command itself.
-'-help demo' (or '-h demo') prints help for the '-demo' command.";
+You really have to ask?";
 
 /// Help specific to the `-demo` command.
 const HELP_DEMO_TEXT: &str = "\
 Help for '-demo':
 
-'-demo' (or '-d') runs the two built-in demo cases: a small-angle regular
-orbit and a high-energy chaotic one. It takes no arguments; passing any
-is an error.";
+Runs the two built-in demo cases: a small-angle regular
+orbit and a high-energy chaotic one.";
 
 fn main() -> ExitCode {
-    // Registers color_eyre's panic/error hooks; every `Report` printed with
-    // `{:?}` below renders through them (colored when stderr is a TTY).
+    // assert: there are no other panic/error hooks
     color_eyre::install().expect("no other panic/error hook is installed");
+
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = raw.iter().map(String::as_str).collect();
     match dispatch(&args) {
@@ -110,8 +102,8 @@ fn dispatch(args: &[&str]) -> Dispatch {
     match args {
         [] => Dispatch::Fail(HELP_TEXT.to_string()),
         ["-help" | "-h"] => Dispatch::Print(HELP_TEXT),
-        ["-help" | "-h", "help"] => Dispatch::Print(HELP_HELP_TEXT),
-        ["-help" | "-h", "demo"] => Dispatch::Print(HELP_DEMO_TEXT),
+        ["-help" | "-h", "help"] | ["-help" | "-h", "-help"] => Dispatch::Print(HELP_HELP_TEXT),
+        ["-help" | "-h", "demo"] | ["-help" | "-h", "-demo"] => Dispatch::Print(HELP_DEMO_TEXT),
         ["-help" | "-h", other] => Dispatch::Fail(format!(
             "Error:\n- unknown command: '{other}' — try '-help' for the help menu.\n"
         )),
