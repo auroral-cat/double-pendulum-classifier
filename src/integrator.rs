@@ -74,6 +74,8 @@ const B4: [f64; 7] = [
 pub enum IntegratorError {
     /// The output grid must have at least two strictly increasing entries.
     InvalidTimeGrid,
+    /// `rtol` and `atol` must both be strictly positive.
+    InvalidTolerance { rtol: f64, atol: f64 },
     /// The adaptive step size collapsed below `f64::MIN_POSITIVE` at time `t`
     /// (the right-hand side is probably stiff or singular).
     StepSizeUnderflow { t: f64 },
@@ -86,6 +88,12 @@ impl fmt::Display for IntegratorError {
                 write!(
                     f,
                     "t_eval must have at least two strictly increasing entries"
+                )
+            }
+            Self::InvalidTolerance { rtol, atol } => {
+                write!(
+                    f,
+                    "rtol and atol must be strictly positive (got {rtol} and {atol})"
                 )
             }
             Self::StepSizeUnderflow { t } => write!(f, "step size underflow at t = {t}"),
@@ -102,7 +110,16 @@ impl Error for IntegratorError {}
 /// Dormand–Prince 5(4) pair, clipping the adaptive step at the interval end
 /// (the same strategy `solve_ivp` uses for `t_eval` output). `rtol` and
 /// `atol` are the per-component relative/absolute tolerances and must both be
-/// positive.
+/// strictly positive.
+///
+/// # Errors
+///
+/// - [`IntegratorError::InvalidTimeGrid`] if `t_eval` has fewer than two
+///   entries or is not strictly increasing.
+/// - [`IntegratorError::InvalidTolerance`] if `rtol` or `atol` is not
+///   strictly positive.
+/// - [`IntegratorError::StepSizeUnderflow`] if the adaptive step size
+///   collapses, e.g. for a stiff or singular right-hand side.
 pub fn integrate<const N: usize, F>(
     f: F,
     y0: [f64; N],
@@ -116,7 +133,9 @@ where
     if t_eval.len() < 2 || t_eval.windows(2).any(|w| w[1] <= w[0]) {
         return Err(IntegratorError::InvalidTimeGrid);
     }
-    assert!(rtol > 0.0 && atol > 0.0, "rtol and atol must be positive");
+    if !(rtol > 0.0 && atol > 0.0) {
+        return Err(IntegratorError::InvalidTolerance { rtol, atol });
+    }
 
     let mut ys = Vec::with_capacity(t_eval.len());
     ys.push(y0);
@@ -276,5 +295,25 @@ mod tests {
             integrate(f, [1.0], &t_eval, 1e-9, 1e-9),
             Err(IntegratorError::InvalidTimeGrid)
         );
+    }
+
+    #[test]
+    fn rejects_non_positive_tolerances() {
+        let f = |_t: f64, y: &[f64; 1]| [y[0]];
+        let t_eval = [0.0, 1.0];
+        assert_eq!(
+            integrate(f, [1.0], &t_eval, 0.0, 1e-9),
+            Err(IntegratorError::InvalidTolerance {
+                rtol: 0.0,
+                atol: 1e-9
+            })
+        );
+        assert!(matches!(
+            integrate(f, [1.0], &t_eval, 1e-9, -1.0),
+            Err(IntegratorError::InvalidTolerance {
+                rtol: 1e-9,
+                atol: -1.0
+            })
+        ));
     }
 }
