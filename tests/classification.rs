@@ -167,11 +167,11 @@ fn the_periodic_resolution_boundary_is_where_we_think_it_is() {
         Classification::Quasiperiodic,
         "ratio 1.39 must be resolved as quasiperiodic"
     );
-    let unresolved = classify(State::new(a, 0.0, a * 1.4142, 0.0), 0.015).unwrap();
+    let unresolved = classify(State::new(a, 0.0, a * (SQRT_2 - 0.0001), 0.0), 0.015).unwrap();
     assert_eq!(
         unresolved.classification,
         Classification::Periodic,
-        "ratio 1.4142 is within the documented resolution limit"
+        "a curve within the documented resolution limit must read periodic"
     );
 }
 
