@@ -516,12 +516,17 @@ mod tests {
         let sol_fine = integrate(f, [1.0], &fine, 1e-12, 1e-12).unwrap();
         let sol_coarse = integrate(f, [1.0], &coarse, 1e-12, 1e-12).unwrap();
         for k in 1..coarse.len() {
-            assert_eq!(
-                sol_fine[k * 10][0],
-                sol_coarse[k][0],
-                "mismatch at t = {}",
-                coarse[k]
-            );
+            // Bit-identicality is the property under test (issues #7, #15):
+            // any 1-ulp divergence is a step-sequence regression.
+            #[allow(clippy::float_cmp)]
+            {
+                assert_eq!(
+                    sol_fine[k * 10][0],
+                    sol_coarse[k][0],
+                    "mismatch at t = {}",
+                    coarse[k]
+                );
+            }
         }
     }
 }

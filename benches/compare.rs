@@ -367,7 +367,12 @@ fn verify() {
     // silently corrupting the first crossing-detection window).
     for b in backends() {
         let sol = b.integrate(CASE1, &[0.0, 1.0]).expect("integration");
-        assert_eq!(sol[0], CASE1, "{}: index 0 is not y0", b.name());
+        // Index 0 is a verbatim copy of y0, not an integrated value; the
+        // peroxide off-by-one regression returned y(dt) here.
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(sol[0], CASE1, "{}: index 0 is not y0", b.name());
+        }
     }
     // The λ columns are all noise-sensitive: λ case1 is a regular orbit at
     // the estimator's noise floor (0.0008-0.0051 across backends, within the

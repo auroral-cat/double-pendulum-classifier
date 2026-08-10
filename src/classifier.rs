@@ -471,7 +471,13 @@ mod tests {
             ..Default::default()
         };
         let λ = largest_lyapunov(State::new(0.2, 0.0, -0.15, 0.0), p).unwrap();
-        assert_eq!(λ, 0.0);
+        // The fallback returns the literal `Ok(0.0)`; exactness is the
+        // contract. (Block form: an `allow` directly on the `assert_eq!`
+        // macro invocation is ignored by rustc.)
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(λ, 0.0);
+        }
     }
 
     #[test]
@@ -485,7 +491,11 @@ mod tests {
             ..Default::default()
         };
         let λ = largest_lyapunov(State::new(0.2, 0.0, -0.15, 0.0), p).unwrap();
-        assert_eq!(λ, 0.0);
+        // The fallback returns the literal `Ok(0.0)`; exactness is the contract.
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(λ, 0.0);
+        }
     }
 
     #[test]
