@@ -94,10 +94,10 @@ enum Dispatch {
 ///
 /// A bare invocation is a usage error: the help menu is routed through
 /// `Fail` so it lands on stderr with exit 2. `-help`/`-h` accepts at most one
-/// argument naming a command to explain (`help` or `demo`); anything else is
-/// an unknown-command error, and extra arguments are an unknown-arguments
-/// error. `-demo`/`-d` takes no arguments. The bare words `help` and `demo`
-/// (no dash) are unknown commands with a did-you-mean hint.
+/// argument naming a command to explain (`help`, `-help`, `demo` or `-demo`);
+/// anything else is an unknown-command error, and extra arguments are an
+/// unknown-arguments error. `-demo`/`-d` takes no arguments. The bare words
+/// `help` and `demo` (no dash) are unknown commands with a did-you-mean hint.
 fn dispatch(args: &[&str]) -> Dispatch {
     match args {
         [] => Dispatch::Fail(HELP_TEXT.to_string()),
@@ -365,6 +365,16 @@ mod tests {
             dispatch(&["-h", "demo"]),
             Dispatch::Print(HELP_DEMO_TEXT)
         ));
+        // Leeway: the dash-prefixed spellings are accepted as subcommand
+        // names too, so `-h -help` and `-help -demo` work as well.
+        assert!(matches!(
+            dispatch(&["-h", "-help"]),
+            Dispatch::Print(HELP_HELP_TEXT)
+        ));
+        assert!(matches!(
+            dispatch(&["-help", "-demo"]),
+            Dispatch::Print(HELP_DEMO_TEXT)
+        ));
     }
 
     #[test]
@@ -374,10 +384,10 @@ mod tests {
         };
         assert!(message.contains("unknown command: 'foo'"));
         assert!(message.contains("try '-help'"));
-        let Dispatch::Fail(message) = dispatch(&["-h", "-demo"]) else {
+        let Dispatch::Fail(message) = dispatch(&["-h", "frobnicate"]) else {
             panic!("expected Fail");
         };
-        assert!(message.contains("unknown command: '-demo'"));
+        assert!(message.contains("unknown command: 'frobnicate'"));
     }
 
     #[test]

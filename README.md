@@ -38,12 +38,12 @@ angular velocities `ω1`, `ω2` — and runs three steps:
    (each time `θ2` passes through 0 going upward). A finite set of crossing
    points means periodic; points that fill in a curve mean quasiperiodic.
 
-The classification rule is: `λ` above a threshold (default 0.015) means chaotic; 
+The classification rule is: `λ` above a threshold (default 0.015) means chaotic;
 otherwise the Poincaré section decides whether it's quasiperiodic or periodic.
 
 ## Getting started
 
-This requires Rust 2024 edition. The crate uses minimal dependencies for error reporting; 
+This requires Rust 2024 edition. The crate uses minimal dependencies for error reporting;
 the solver itself is pure standard library.
 
 ```bash
@@ -88,7 +88,7 @@ case 2 — high-energy start (strongly chaotic):
 A benchmark against established ODE crates (`ode_solvers`, `diffsol`,
 `peroxide`) is included. Against the two adaptive solvers — `ode_solvers`'
 Dopri5 and `diffsol`'s TSIT45 — the built-in integrator is the fastest by
-about 1.4–1.9× at `rtol = atol = 1e-12` (measured on the author's machine; 
+about 1.4–1.9× at `rtol = atol = 1e-12` (measured on the author's machine;
 the exact margin depends on the hardware).
 
 The `peroxide` row is **not** a like-for-like comparison: peroxide's adaptive
